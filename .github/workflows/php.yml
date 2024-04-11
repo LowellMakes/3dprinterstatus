@@ -17,4 +17,4 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Run Lint
-      run: /bin/false
+      run: php -l index.php 
