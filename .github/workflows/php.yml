@@ -16,5 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - name: Run Lint
+    - name: Lint index.php
       run: php -l index.php 
+    - name: Lint get_printer_data.php
+      run: php -l get_printer_data.php
+      
