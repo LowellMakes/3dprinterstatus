@@ -20,4 +20,6 @@ jobs:
       run: php -l index.php 
     - name: Lint get_printer_data.php
       run: php -l get_printer_data.php
+    - name: fail
+      run: /bin/false
       
