@@ -13,7 +13,6 @@ while true; do
 	# Get the checked out local commit
 	cd $staging_dir
     latest_local_commit=$(git branch|awk -F '[ |)]' '/HEAD/ {print $5}')
-	echo "latest_local_Commit = ${latest_local_commit}" #DEBUG
 
 	# Get the last successful workflow run
 	response=$(curl -sS -H "Accept: application/vnd.github.v3+json" \
@@ -25,7 +24,6 @@ while true; do
 
 	# Extract commit ID if any successful run exists
 	latest_remote_merge_commit=$(echo ${response} | jq -r '.workflow_runs[0].head_commit.id'|cut -c1-7)
-	echo "latest merge commit = ${latest_remote_merge_commit}" #DEBUG
 
 	if [ "${latest_local_commit}" = "${latest_remote_merge_commit}" ]; then
 		echo "We are running the latest successful merge"
