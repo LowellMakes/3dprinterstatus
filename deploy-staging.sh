@@ -1,5 +1,11 @@
 #!/bin/bash
 
+if command -v curl &> /dev/null && command -v git &> /dev/null && command -v jq &> /dev/null; then
+    echo "ok"
+else
+    echo "Missing dependencies"
+fi
+
 staging_dir="/var/www/staging"
 repo_owner=lowellmakes
 repo_name=3dprinterstatus
