@@ -32,7 +32,7 @@ while true; do
     else
         echo -e "We are not running the lastest successful merge\nChecking out ${latest_remote_merge_commit}"
 		cd ${staging_dir}
-		git pull
+		git pull --all
 		git checkout ${latest_remote_merge_commit} >/dev/null 2>&1
     fi
 
