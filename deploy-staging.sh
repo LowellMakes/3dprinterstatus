@@ -32,9 +32,10 @@ while true; do
     else
         echo -e "We are not running the lastest successful merge\nChecking out ${latest_remote_merge_commit}"
 		cd ${staging_dir}
+		git pull
 		git checkout ${latest_remote_merge_commit} >/dev/null 2>&1
     fi
 
     echo "Checking again in 1 minute..."
-    sleep 10
+    sleep 60
 done
