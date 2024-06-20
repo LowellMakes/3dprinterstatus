@@ -1,5 +1,6 @@
 /* styles.css */
 html {
+    // TODO: Set font-size in units of em (https://en.wikipedia.org/wiki/Em_(typography))
     font-size: 12px; /* Base font size for mobile devices */
 }
 
@@ -12,18 +13,9 @@ body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
     background-color: #f0f0f0;
 	background-image: url("3d-printer-wallpaper.jpg");
-    margin: 0;
-    padding: 0;
 }
 
 .container {
-    max-width: 90%;
-    margin: 0 auto;
-    padding: 20px;
-    background-color: rgba(255, 255, 255, 0); /* Adjust the alpha (0.8) for transparency */
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-    border-radius: 0px;
-    margin-top: 5px;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -34,42 +26,42 @@ body {
 h2 {
     font-size: 1.3rem;
     color: #333;
-    margin: 5px 0;
 }
 
 p {
     font-size: 1rem;
     color: #555;
-    margin: 5px 0;
 }
 
 th {
 	background-color: rgba(255,255,255,0.5);
-	}
+}
+
+td {
+    border: 1px solid #e6e6e688;
+}
 
 .ready {
 	background-color: rgba(152,255,153,0.70);
-	}
+}
+
 .printing {
 	background-color: rgba(255,255,128,0.70);
 }
+
 .offline {
 	background-color: rgba(255,102,102,0.70);
 }
-.printer-info {
-    padding: 1px;
-    margin: 5px;
-    border: 0px solid #ccc;
-}
-    .printer-info h2 {
+
+.printer-info h2 {
     margin: 0;
 }
-table, td{
+
+table {
     font-size: 1.3rem;
-    border: 1px solid;
-    border-color: #e6e6e6;
+    border: 1px solid #e6e6e6;
+    border-collapse: collapse;
 }
 .wrapper {
-  display: table-cell;
   vertical-align: middle;
 }
