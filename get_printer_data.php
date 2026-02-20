@@ -1,24 +1,6 @@
 <?php
 
-$printers = array(
-    array(
-        'printerName' => 'printer1',
-        'url' => 'http://printer1.example.com/api/',
-        'apiKey' => 'apikey1',
-    ),
-
-    array(
-        'printerName' => 'printer2',
-        'url' => 'http://printer2.example.com/api/',
-        'apiKey' => 'apikey2',
-    ),
-    array(
-        'printerName' => 'printer3',
-        'url' => 'http://printer3.example.com/api/',
-        'apiKey' => 'apikey3',
-    ),
-
-);
+$printers = json_decode(file_get_contents(__DIR__ . '/printers.json'), true);
 
 $cacheFile = '/tmp/printer_data_cache.json'; // Set the cache file path
 
@@ -40,12 +22,17 @@ function fetchPrinterData() {
 
     // Loop through each printer
     foreach ($printers as $printer) {
+	   if (!($printer['active'] ?? true)) {
+               continue;
+           }
+
 	    $printerName = $printer['printerName'];
 	    $printerUrl = $printer['url'];
 	    $printerApiKey = $printer['apiKey'];
 	
 	    // Make a request to get the current job information
-	    $urlJob = $printerUrl . 'job';
+	    $apiBase = rtrim($printerUrl, '/') . '/api/';
+	    $urlJob = $apiBase . 'job';
 	    $chJob = curl_init();
 	    curl_setopt($chJob, CURLOPT_URL, $urlJob);
 	    curl_setopt($chJob, CURLOPT_RETURNTRANSFER, true);
@@ -54,7 +41,7 @@ function fetchPrinterData() {
 	    curl_close($chJob);
 
 	    // Make a request to get the server settings
-	    $urlSettings = $printerUrl . 'settings';
+	    $urlSettings = $apiBase . 'settings';
 	    $chSettings = curl_init();
 	    curl_setopt($chSettings, CURLOPT_URL, $urlSettings);
 	    curl_setopt($chSettings, CURLOPT_RETURNTRANSFER, true);
@@ -80,7 +67,7 @@ function fetchPrinterData() {
 	        'progress' => '',
 	        'elapsed' => '',
 	        'left' => '',
-			'colorClass' => $colorClass,
+		'colorClass' => $colorClass,
 		    );
 	    } else {
         $printerData[] = array(
@@ -90,9 +77,11 @@ function fetchPrinterData() {
             'elapsed' => (isset($job['progress']['printTime'])) ? formatTime($job['progress']['printTime']) : '',
             'left' => (isset($job['progress']['printTimeLeft'])) ? formatTime($job['progress']['printTimeLeft']) : '',
             'colorClass' => $colorClass,
+	    'active' => $printer['active'] ?? true
         );
     }
 }
+    usort($printerData, fn($a, $b) => ($b['active'] ?? true) <=> ($a['active'] ?? true));
     return $printerData;
 }
 
