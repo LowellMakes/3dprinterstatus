@@ -1,6 +1,6 @@
 <?php
 
-$printers = json_decode(file_get_contents(__DIR__ . '/printers.json'), true);
+$printers = json_decode(file_get_contents(__DIR__ . '/../private/printers.json'), true);
 
 $cacheFile = '/tmp/printer_data_cache.json'; // Set the cache file path
 

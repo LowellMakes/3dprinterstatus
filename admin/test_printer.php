@@ -1,4 +1,5 @@
 <?php
+require 'protect.php';
 
 $url    = $_POST['url']    ?? '';
 $apiKey = $_POST['apiKey'] ?? '';
