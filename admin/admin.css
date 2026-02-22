@@ -1,0 +1,96 @@
+body {
+    font-family: Arial, sans-serif;
+    background: linear-gradient(135deg, #1f2933, #3a4a5a);
+    margin: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    color: #333;
+}
+
+.card {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    width: 900px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+h1 {
+    text-align: center;
+    margin-top: 0;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+th {
+    background: #4CAF50;
+    color: white;
+    padding: 10px;
+}
+
+td {
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+}
+
+.inactive {
+    background: #eee;
+    color: #888;
+}
+
+.button {
+    background: #4CAF50;
+    color: white;
+    padding: 8px 14px;
+    border-radius: 6px;
+    text-decoration: none;
+}
+
+.button.red {
+    background: #d9534f;
+}
+
+.test-result {
+    margin-left: 10px;
+    font-weight: bold;
+}
+
+.form-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.form-row input[type="text"] {
+    width: 260px;   /* pick what looks good */
+}
+
+form input[type="text"],
+form input[type="url"] {
+    width: 100%;
+    margin-bottom: 10px;
+}
+
+.form-row input[type="text"] {
+    width: auto;
+    margin-bottom: 0;
+}
+
+.form-row input.printer-name {
+    width: 180px;
+}
+
+.form-row input[name="url"] {
+    width: 200px;
+}
+
+.form-row input[name="apiKey"] {
+    width: 260px;
+}
