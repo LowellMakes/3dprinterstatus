@@ -94,3 +94,36 @@ form input[type="url"] {
 .form-row input[name="apiKey"] {
     width: 260px;
 }
+
+.form-row input[name="entityPrefix"] {
+    width: 260px;
+}
+
+.provider-fields {
+    display: inline-flex;
+    gap: 10px;
+}
+
+.inline-form {
+    display: inline;
+}
+
+.button.secondary {
+    background: #64748b;
+}
+
+.error {
+    margin-bottom: 15px;
+    padding: 10px;
+    border-radius: 6px;
+    background: #fee2e2;
+    color: #991b1b;
+}
+
+.succeeded {
+    color: green;
+}
+
+.failed {
+    color: #c00;
+}

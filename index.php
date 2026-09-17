@@ -49,15 +49,23 @@
                     // Clear the current printer data
                     $('#printerData').empty();
 
-                    // Iterate over the data and add rows to the table
+                    // Build rows with text nodes so names/models from APIs cannot inject HTML
                     data.forEach(function(printer) {
-                        $('#printerData').append('<tr class="' + printer.colorClass + '">' +
-                            '<td>&nbsp' + printer.name + '&nbsp</td>' +
-                            '<td align="center">' + printer.status + '</td>' +
-					        '<td align="center">' + (printer.progress !== '' && printer.status !== 'Offline' ? printer.progress + '%' : '') + '</td>' +
-                            '<td align="center">' + printer.elapsed + '</td>' +
-                            '<td align="center">' + printer.left + '</td>' +
-                            '</tr>');
+                        const row = $('<tr>').addClass(printer.colorClass);
+                        const identity = $('<td>').addClass('printer-identity');
+                        identity.append($('<div>').addClass('printer-name').text(printer.name));
+                        if (printer.model) {
+                            identity.append($('<div>').addClass('printer-model').text(printer.model));
+                        }
+
+                        row.append(identity);
+                        row.append($('<td>').attr('align', 'center').text(printer.status));
+                        row.append($('<td>').attr('align', 'center').text(
+                            printer.progress !== '' && printer.status !== 'Offline' ? printer.progress + '%' : ''
+                        ));
+                        row.append($('<td>').attr('align', 'center').text(printer.elapsed));
+                        row.append($('<td>').attr('align', 'center').text(printer.left));
+                        $('#printerData').append(row);
                     });
                 },
                 complete: function() {

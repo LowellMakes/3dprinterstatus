@@ -1,0 +1,16 @@
+[
+    {
+        "provider": "octoprint",
+        "printerName": "Prusa MK3S",
+        "url": "http://octoprint.local",
+        "apiKey": "replace-with-octoprint-api-key",
+        "active": true
+    },
+    {
+        "provider": "homeassistant",
+        "printerName": "Bambu A1",
+        "model": "A1",
+        "entityPrefix": "bambu_a1",
+        "active": true
+    }
+]
