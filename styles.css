@@ -69,6 +69,20 @@ table, td{
     border: 1px solid;
     border-color: #e6e6e6;
 }
+.printer-identity {
+    padding: 0.35rem 0.55rem;
+}
+
+.printer-name {
+    font-weight: 600;
+}
+
+.printer-model {
+    margin-top: 0.1rem;
+    font-size: 0.72em;
+    opacity: 0.72;
+}
+
 .wrapper {
   display: table-cell;
   vertical-align: middle;

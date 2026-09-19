@@ -1,152 +1,171 @@
 <?php
+
+declare(strict_types=1);
+
 require 'protect.php';
+require_once __DIR__ . '/../lib/printer_providers.php';
 
 $file = __DIR__ . '/../../private/printers.json';
-$printers = json_decode(file_get_contents($file), true);
-$cacheFile = '/tmp/printer_data_cache.json'; // Set the cache file path
-
-$id = $_GET['id'] ?? null;
-
-$printer = $printers[$id] ?? [
+$homeAssistantFile = __DIR__ . '/../../private/homeassistant.json';
+$cacheFile = '/tmp/printer_data_cache.json';
+$printers = is_file($file) ? json_decode((string)file_get_contents($file), true) : [];
+$printers = is_array($printers) ? $printers : [];
+$id = null;
+if (isset($_GET['id'])) {
+    try {
+        $id = validatedPrinterId($_GET['id'], count($printers));
+    } catch (InvalidArgumentException) {
+        http_response_code(404);
+        exit('Printer not found.');
+    }
+}
+$printer = $id !== null ? $printers[$id] : [
+    'provider' => 'octoprint',
     'printerName' => '',
+    'model' => '',
     'url' => '',
     'apiKey' => '',
-    'active' => true
+    'entityPrefix' => '',
+    'active' => true,
 ];
-
-function getPrinterName($url, $apiKey) {
-
-    $base = rtrim($url, '/');
-
-    $opts = [
-        "http" => [
-            "method" => "GET",
-            "header" => "X-Api-Key: $apiKey\r\n",
-            "timeout" => 5
-        ]
-    ];
-
-    $context = stream_context_create($opts);
-    $json = @file_get_contents($base . '/api/settings', false, $context);
-
-
-    if ($json === false) {
-        error_log("API FAILED: " . $base . "/api/settings");
-        return '';
-    }
-
-    $data = json_decode($json, true);
-
-    return $data['appearance']['name'] ?? '';
-}
+$error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-
-    // ALWAYS take values from the form first
-    $url    = $_POST['url'] ?? '';
-    $apiKey = $_POST['apiKey'] ?? '';
-
-    // Fetch live name using the POSTed values
-    $printerName = getPrinterName($url, $apiKey);
-
-    // If editing and API failed → keep existing name
-    if ($id !== null && empty($printerName) && !empty($printers[$id]['printerName'])) {
-        $printerName = $printers[$id]['printerName'];
-    }
-
-    // If adding and API failed → stop
-    if ($id === null && empty($printerName)) {
-        die("Could not contact printer API.");
-    }
-
-    // Build data from POST (THIS IS CORRECT)
+    require_csrf_token();
+    $provider = printerProvider(['provider' => $_POST['provider'] ?? 'octoprint']);
     $data = [
-        'printerName' => $printerName,
-        'url'         => $url,
-        'apiKey'      => $apiKey,
-        'active'      => isset($_POST['active'])
+        'provider' => $provider,
+        'printerName' => (string)($printer['printerName'] ?? ''),
+        'model' => (string)($printer['model'] ?? ''),
+        'active' => isset($_POST['active']),
     ];
 
-    // Save
-    if ($id !== null) {
-        $printers[$id] = $data;
+    if ($provider === 'homeassistant') {
+        $data['entityPrefix'] = strtolower(trim((string)($_POST['entityPrefix'] ?? '')));
     } else {
-        $printers[] = $data;
+        $data['url'] = trim((string)($_POST['url'] ?? ''));
+        $data['apiKey'] = trim((string)($_POST['apiKey'] ?? ''));
     }
 
-    file_put_contents($file, json_encode($printers, JSON_PRETTY_PRINT));
+    try {
+        if ($provider === 'homeassistant') {
+            buildHomeAssistantTemplate((string)$data['entityPrefix']);
+        } else {
+            $data['url'] = validatedHttpBaseUrl((string)$data['url']);
+        }
 
-    if (file_exists($cacheFile)) {
-        unlink($cacheFile);
+        $live = fetchPrinter($data, loadHomeAssistantConfig($homeAssistantFile));
+        if ($live['status'] === 'Offline') {
+            if ($id === null) {
+                throw new RuntimeException('Could not contact the printer through ' . ($provider === 'homeassistant' ? 'Home Assistant.' : 'OctoPrint.'));
+            }
+        } else {
+            $data['printerName'] = $live['name'];
+            $data['model'] = $live['model'];
+        }
+
+        if ($id !== null) {
+            $printers[$id] = $data;
+        } else {
+            $printers[] = $data;
+        }
+
+        writeJsonFile($file, $printers);
+        if (is_file($cacheFile)) {
+            unlink($cacheFile);
+        }
+        header('Location: index.php');
+        exit;
+    } catch (Throwable $exception) {
+        $error = $exception->getMessage();
+        $printer = $data;
     }
-
-    header('Location: index.php');
-    exit;
 }
+
+$provider = printerProvider($printer);
 ?>
 
 <link rel="stylesheet" href="admin.css">
 
 <div class="card">
+<h1><?= $id !== null ? 'Edit Printer' : 'Add Printer' ?></h1>
 
-<h1><?= $id !== null ? "Edit Printer" : "Add Printer" ?></h1>
+<?php if ($error !== ''): ?>
+<div class="error"><?= htmlspecialchars($error) ?></div>
+<?php endif; ?>
 
 <form method="post">
-
+<input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
 <div class="form-row">
   <?php if ($id !== null && !empty($printer['printerName'])): ?>
-    <input class="printer-name" value="<?= htmlspecialchars($printer['printerName']) ?>" readonly>
+    <input class="printer-name" value="<?= htmlspecialchars((string)$printer['printerName']) ?>" readonly>
   <?php endif; ?>
 
-  <input type="text" name="url"
-         value="<?= htmlspecialchars($printer['url'] ?? '') ?>"
-         placeholder="Octoprint URL">
+  <select name="provider" id="provider">
+    <option value="octoprint" <?= $provider === 'octoprint' ? 'selected' : '' ?>>OctoPrint</option>
+    <option value="homeassistant" <?= $provider === 'homeassistant' ? 'selected' : '' ?>>Home Assistant / Bambu Lab</option>
+  </select>
 
-  <input type="text" name="apiKey"
-         value="<?= htmlspecialchars($printer['apiKey'] ?? '') ?>"
-         placeholder="API Key">
+  <span class="provider-fields" data-provider="octoprint">
+    <input type="text" name="url"
+           value="<?= htmlspecialchars((string)($printer['url'] ?? '')) ?>"
+           placeholder="OctoPrint URL">
+    <input type="text" name="apiKey"
+           value="<?= htmlspecialchars((string)($printer['apiKey'] ?? '')) ?>"
+           placeholder="API Key">
+  </span>
+
+  <span class="provider-fields" data-provider="homeassistant">
+    <input type="text" name="entityPrefix"
+           value="<?= htmlspecialchars((string)($printer['entityPrefix'] ?? '')) ?>"
+           placeholder="Entity prefix, e.g. bambu_a1"
+           pattern="[a-z0-9_]+">
+  </span>
 
   <button type="button" id="test-connection">Test Connection</button>
   <span id="test-result"></span>
 
   <label>
-    <input type="checkbox" name="active" <?= $printer['active'] ? 'checked' : '' ?>>
+    <input type="checkbox" name="active" <?= ($printer['active'] ?? true) ? 'checked' : '' ?>>
     Active
   </label>
 </div>
 
 <br><br>
-
 <button class="button">Save</button>
-
+<a class="button secondary" href="index.php">Cancel</a>
 </form>
-
 </div>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-
 <script>
+function updateProviderFields() {
+    const provider = $('#provider').val();
+    $('.provider-fields').hide();
+    $('.provider-fields[data-provider="' + provider + '"]').show();
+}
+
+$('#provider').on('change', updateProviderFields);
+updateProviderFields();
+
 $('#test-connection').click(function () {
-
-    let url = $('input[name="url"]').val();
-    let key = $('input[name="apiKey"]').val();
-
     $('#test-result').text('Testing...');
 
     $.post('test_printer.php', {
-        url: url,
-        apiKey: key
+        csrf_token: <?= json_encode(csrf_token()) ?>,
+        provider: $('#provider').val(),
+        url: $('input[name="url"]').val(),
+        apiKey: $('input[name="apiKey"]').val(),
+        entityPrefix: $('input[name="entityPrefix"]').val()
     }, function (res) {
-
         if (res.success) {
-            $('#test-result').html('<span style="color:green;">Succeeded</span>');
-	    $('#printerName').val(res.name);
+            const model = res.model ? ' (' + res.model + ')' : '';
+            $('#test-result').text('Succeeded: ' + res.name + model).removeClass('failed').addClass('succeeded');
         } else {
-            $('#test-result').html('<span style="color:red;">Failed</span>');
+            $('#test-result').text(res.message || 'Failed').removeClass('succeeded').addClass('failed');
         }
-
-    }, 'json');
-
+    }, 'json').fail(function () {
+        $('#test-result').text('Request failed').removeClass('succeeded').addClass('failed');
+    });
 });
 </script>
-
