@@ -23,7 +23,7 @@ The following Bambu entities are used, where `<prefix>` is configured in the adm
 - `sensor.<prefix>_remaining_time`
 - `sensor.<prefix>_start_time`
 
-The hardware model is read from the entity's Home Assistant device-registry metadata with `device_attr()`. The status page displays it beneath the printer name.
+The display name prefers the Home Assistant device's user-assigned name, then falls back to the Bambu printer-name sensor and the saved admin value. The hardware model is read from the print-status entity's Home Assistant device-registry metadata with `device_attr()`, so model discovery still works when the optional printer-name sensor is missing or blank. The status page displays the model beneath the printer name.
 
 ## Requirements
 

@@ -80,8 +80,9 @@ test('Home Assistant template requests Bambu status and device model', function 
     assertContainsText("sensor.bambu_a1_printer_name", $template);
     assertContainsText("binary_sensor.bambu_a1_online", $template);
     assertContainsText("sensor.bambu_a1_print_progress", $template);
+    assertContainsText("device_attr('sensor.bambu_a1_print_status', 'name_by_user')", $template);
+    assertContainsText("device_attr('sensor.bambu_a1_print_status', 'model')", $template);
     assertContainsText("state_attr('sensor.bambu_a1_remaining_time', 'unit_of_measurement')", $template);
-    assertContainsText("device_attr('sensor.bambu_a1_printer_name', 'model')", $template);
 });
 
 test('Home Assistant entity prefix is validated before template creation', function (): void {
@@ -92,6 +93,27 @@ test('Home Assistant entity prefix is validated before template creation', funct
     }
 
     throw new RuntimeException('unsafe entity prefix was accepted');
+});
+
+test('Home Assistant device rename wins over Bambu serial or blank printer name', function (): void {
+    foreach ([
+        ['name' => 'A1-03919C431202777', 'device_name_by_user' => '3D Printing Kestrel'],
+        ['name' => '', 'device_name_by_user' => '3D Printing Swift'],
+    ] as $identity) {
+        $result = normalizeHomeAssistantPrinter($identity + [
+            'device_name' => 'A1-serial',
+            'model' => 'A1',
+            'online' => true,
+            'status' => 'idle',
+            'progress' => '0',
+            'remaining_hours' => '0',
+            'remaining_unit' => 'min',
+            'start_time' => 'unknown',
+        ], ['printerName' => 'Fallback']);
+
+        assertSameValue($identity['device_name_by_user'], $result['name']);
+        assertSameValue('A1', $result['model']);
+    }
 });
 
 test('running Bambu state is normalized for the existing status page', function (): void {

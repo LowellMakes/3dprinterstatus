@@ -165,7 +165,9 @@ function buildHomeAssistantTemplate(string $entityPrefix): string
 
     return "{{ {"
         . "'name': states('{$nameEntity}'), "
-        . "'model': device_attr('{$nameEntity}', 'model'), "
+        . "'device_name_by_user': device_attr('{$statusEntity}', 'name_by_user'), "
+        . "'device_name': device_attr('{$statusEntity}', 'name'), "
+        . "'model': device_attr('{$statusEntity}', 'model'), "
         . "'online': is_state('{$onlineEntity}', 'on'), "
         . "'status': states('{$statusEntity}'), "
         . "'progress': states('{$progressEntity}'), "
@@ -202,9 +204,13 @@ function normalizeHomeAssistantPrinter(
         default => [ucfirst($rawStatus), 'offline'],
     };
 
-    $name = usefulHomeAssistantValue($data['name'] ?? null)
-        ? (string)$data['name']
-        : (string)($printer['printerName'] ?? 'Unknown printer');
+    $name = (string)($printer['printerName'] ?? 'Unknown printer');
+    foreach (['device_name_by_user', 'name', 'device_name'] as $nameSource) {
+        if (usefulHomeAssistantValue($data[$nameSource] ?? null)) {
+            $name = (string)$data[$nameSource];
+            break;
+        }
+    }
     $model = usefulHomeAssistantValue($data['model'] ?? null)
         ? (string)$data['model']
         : (string)($printer['model'] ?? '');
