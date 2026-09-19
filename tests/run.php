@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/printer_providers.php';
+require_once __DIR__ . '/../lib/app_config.php';
+require_once __DIR__ . '/../deploy/migrate-legacy-auth.php';
 
 $tests = [];
 
@@ -28,6 +30,194 @@ function assertContainsText(string $needle, string $haystack): void
         throw new RuntimeException("expected to find {$needle}");
     }
 }
+
+function assertThrowsRuntime(callable $callback, string $message): void
+{
+    try {
+        $callback();
+    } catch (RuntimeException) {
+        return;
+    }
+
+    throw new RuntimeException($message);
+}
+
+function validApplicationConfig(): array
+{
+    return [
+        'printers_file' => '/var/lib/3dprinterstatus/staging/printers.json',
+        'cache_file' => '/var/cache/3dprinterstatus/staging/printer-data.json',
+        'home_assistant' => [
+            'url' => 'http://homeassistant.lowellmakes.lan:8123/',
+            'token' => 'test-token',
+        ],
+        'admin' => [
+            'password_hash' => password_hash('test-password', PASSWORD_DEFAULT),
+            'ip_allowlist' => ['127.0.0.1', '10.0.0.0/8', '172.16.'],
+        ],
+    ];
+}
+
+function loadTemporaryApplicationConfig(array $config): array
+{
+    $path = tempnam(sys_get_temp_dir(), '3dps-config-');
+    file_put_contents($path, json_encode($config, JSON_THROW_ON_ERROR));
+    try {
+        return loadApplicationConfig($path);
+    } finally {
+        unlink($path);
+    }
+}
+
+test('live config is the default without an environment marker', function (): void {
+    $root = sys_get_temp_dir() . '/3dps-root-' . bin2hex(random_bytes(4));
+    mkdir($root);
+    try {
+        assertSameValue('/etc/3dprinterstatus/live.json', resolveApplicationConfigPath($root, []));
+    } finally {
+        rmdir($root);
+    }
+});
+
+test('a gitignored staging marker selects staging config', function (): void {
+    $root = sys_get_temp_dir() . '/3dps-root-' . bin2hex(random_bytes(4));
+    mkdir($root);
+    file_put_contents($root . '/.staging', '');
+    try {
+        assertSameValue('/etc/3dprinterstatus/staging.json', resolveApplicationConfigPath($root, []));
+    } finally {
+        unlink($root . '/.staging');
+        rmdir($root);
+    }
+});
+
+test('an explicit server config path overrides the marker default', function (): void {
+    assertSameValue(
+        '/custom/instance.json',
+        resolveApplicationConfigPath('/unused', ['THREEDPRINTERSTATUS_CONFIG' => '/custom/instance.json'])
+    );
+});
+
+test('application config keeps credentials and deployment paths together', function (): void {
+    $config = loadTemporaryApplicationConfig(validApplicationConfig());
+    assertSameValue('/var/lib/3dprinterstatus/staging/printers.json', $config['printers_file']);
+    assertSameValue('/var/cache/3dprinterstatus/staging/printer-data.json', $config['cache_file']);
+    assertSameValue('http://homeassistant.lowellmakes.lan:8123', $config['home_assistant']['url']);
+    assertSameValue('test-token', $config['home_assistant']['token']);
+    assertSameValue(['127.0.0.1', '10.0.0.0/8', '172.16.'], $config['admin']['ip_allowlist']);
+});
+
+test('application config rejects relative state paths', function (): void {
+    $config = validApplicationConfig();
+    $config['printers_file'] = '../private/printers.json';
+    assertThrowsRuntime(
+        static fn(): array => loadTemporaryApplicationConfig($config),
+        'relative printers path was accepted'
+    );
+});
+
+test('application config requires string credentials and a usable password hash', function (): void {
+    foreach ([
+        ['home_assistant', 'url', 1234],
+        ['home_assistant', 'token', 1234],
+        ['admin', 'password_hash', 1234],
+        ['admin', 'password_hash', '$2y$10$not-a-complete-hash'],
+    ] as [$section, $key, $value]) {
+        $config = validApplicationConfig();
+        $config[$section][$key] = $value;
+        assertThrowsRuntime(
+            static fn(): array => loadTemporaryApplicationConfig($config),
+            "invalid {$section}.{$key} was accepted"
+        );
+    }
+});
+
+test('application config validates the normalized Home Assistant HTTP URL', function (): void {
+    foreach (['http://', 'https://', 'ftp://ha.local', 'http://user:pass@ha.local', 'http://ha.local/path?query=1', "http://ha.local\nHost: evil"] as $url) {
+        $config = validApplicationConfig();
+        $config['home_assistant']['url'] = $url;
+        assertThrowsRuntime(
+            static fn(): array => loadTemporaryApplicationConfig($config),
+            "unsafe Home Assistant URL was accepted: {$url}"
+        );
+    }
+});
+
+test('application config rejects malformed allowlist rules', function (): void {
+    foreach (['anything', '999.1.1.1', '10.0.0.1/8', '10.0.0.0/33', '172.16', '172.999.', '10.0.0.0/8/extra'] as $rule) {
+        $config = validApplicationConfig();
+        $config['admin']['ip_allowlist'] = [$rule];
+        assertThrowsRuntime(
+            static fn(): array => loadTemporaryApplicationConfig($config),
+            "malformed allowlist rule was accepted: {$rule}"
+        );
+    }
+});
+
+test('application config rejects unsafe or degenerate file paths', function (): void {
+    foreach (['/', '/var/lib/../etc/passwd', '/var//lib/printers.json', '/var/lib/', "/var/lib/printers.json\0suffix"] as $path) {
+        $config = validApplicationConfig();
+        $config['printers_file'] = $path;
+        assertThrowsRuntime(
+            static fn(): array => loadTemporaryApplicationConfig($config),
+            'unsafe state path was accepted'
+        );
+    }
+
+    $config = validApplicationConfig();
+    $config['cache_file'] = $config['printers_file'];
+    assertThrowsRuntime(
+        static fn(): array => loadTemporaryApplicationConfig($config),
+        'identical state and cache paths were accepted'
+    );
+});
+
+test('legacy auth migration hashes the password and preserves the allowlist', function (): void {
+    $path = tempnam(sys_get_temp_dir(), 'legacy-auth-');
+    file_put_contents($path, <<<'PHP'
+<?php
+$password = 'migration-test-password';
+$ip_allowlist = explode(',', '127.0.0.1, 10.0.0.0/8');
+$client_ip = $_SERVER['REMOTE_ADDR'];
+exit('This runtime code must not execute during migration.');
+PHP);
+
+    try {
+        $config = extractLegacyAuth($path);
+        assertSameValue(true, password_verify('migration-test-password', $config['password_hash']));
+        assertSameValue(['127.0.0.1', '10.0.0.0/8'], $config['ip_allowlist']);
+    } finally {
+        unlink($path);
+    }
+});
+
+test('legacy auth migration rejects assignment grammar variants', function (): void {
+    foreach ([
+        '$password = trim(\'password\'); $ip_allowlist = explode(\',\', \'127.0.0.1\');',
+        '$password = \'password\' . \'suffix\'; $ip_allowlist = explode(\',\', \'127.0.0.1\');',
+        '$password = \'password\'; $ip_allowlist = array_filter(explode(\',\', \'127.0.0.1\'));',
+        '$password = \'password\'; $ip_allowlist = explode($separator, \'127.0.0.1\');',
+        '$password = \'first\'; $password = \'second\'; $ip_allowlist = explode(\',\', \'127.0.0.1\');',
+    ] as $body) {
+        $path = tempnam(sys_get_temp_dir(), 'legacy-auth-');
+        file_put_contents($path, "<?php\n{$body}\n");
+        try {
+            assertThrowsRuntime(
+                static fn(): array => extractLegacyAuth($path),
+                'unsupported legacy auth assignment was accepted'
+            );
+        } finally {
+            unlink($path);
+        }
+    }
+});
+
+test('admin IP allowlist supports CIDR exact and legacy prefix rules', function (): void {
+    assertSameValue(true, ipAllowed('10.2.10.55', ['10.0.0.0/8']));
+    assertSameValue(true, ipAllowed('192.168.1.20', ['192.168.1.20']));
+    assertSameValue(true, ipAllowed('172.16.4.9', ['172.16.']));
+    assertSameValue(false, ipAllowed('203.0.113.9', ['10.0.0.0/8', '192.168.1.20']));
+});
 
 test('legacy printer entries default to OctoPrint', function (): void {
     assertSameValue('octoprint', printerProvider(['url' => 'http://printer']));
@@ -280,32 +470,6 @@ test('JSON writes fail loudly when the target cannot be written', function (): v
     }
 
     throw new RuntimeException('failed JSON write was reported as successful');
-});
-
-test('Home Assistant configuration loads from a private JSON file', function (): void {
-    $path = tempnam(sys_get_temp_dir(), 'ha-config-');
-    file_put_contents($path, json_encode([
-        'url' => 'http://ha.local:8123/',
-        'token' => 'file-token',
-    ], JSON_THROW_ON_ERROR));
-
-    try {
-        $config = loadHomeAssistantConfig($path, []);
-        assertSameValue('http://ha.local:8123', $config['url']);
-        assertSameValue('file-token', $config['token']);
-    } finally {
-        unlink($path);
-    }
-});
-
-test('Home Assistant environment variables override private JSON', function (): void {
-    $config = loadHomeAssistantConfig('/does/not/exist', [
-        'HOME_ASSISTANT_URL' => 'http://ha-env.local:8123/',
-        'HOME_ASSISTANT_TOKEN' => 'env-token',
-    ]);
-
-    assertSameValue('http://ha-env.local:8123', $config['url']);
-    assertSameValue('env-token', $config['token']);
 });
 
 $failures = 0;

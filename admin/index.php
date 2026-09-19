@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 require 'protect.php';
 require_once __DIR__ . '/../lib/printer_providers.php';
+require_once __DIR__ . '/../lib/app_config.php';
 
-$file = __DIR__ . '/../../private/printers.json';
-$cacheFile = '/tmp/printer_data_cache.json';
+$applicationConfig = applicationConfig();
+$file = $applicationConfig['printers_file'];
+$cacheFile = $applicationConfig['cache_file'];
 $printers = is_file($file) ? json_decode((string)file_get_contents($file), true) : [];
 $printers = is_array($printers) ? $printers : [];
 

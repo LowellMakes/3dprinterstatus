@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 require 'protect.php';
 require_once __DIR__ . '/../lib/printer_providers.php';
+require_once __DIR__ . '/../lib/app_config.php';
+
+$applicationConfig = applicationConfig();
 
 header('Content-Type: application/json');
 require_csrf_token();
 
 if (isset($_POST['id'])) {
-    $printersFile = __DIR__ . '/../../private/printers.json';
+    $printersFile = $applicationConfig['printers_file'];
     $printers = is_file($printersFile)
         ? json_decode((string)file_get_contents($printersFile), true)
         : [];
@@ -50,8 +53,7 @@ try {
         $printer['url'] = validatedHttpBaseUrl((string)($printer['url'] ?? ''));
     }
 
-    $homeAssistantConfig = loadHomeAssistantConfig(__DIR__ . '/../../private/homeassistant.json');
-    $result = fetchPrinter($printer, $homeAssistantConfig);
+    $result = fetchPrinter($printer, $applicationConfig['home_assistant']);
     if ($result['status'] === 'Offline') {
         throw new RuntimeException('Connection failed');
     }

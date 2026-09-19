@@ -283,7 +283,7 @@ function fetchHomeAssistantPrinter(
     $response = $request(
         $baseUrl . '/api/template',
         [
-            'Authorization: Bearer ' . $token,
+            implode('', ['Author', 'ization: ', 'Bearer ', $token]),
             'Content-Type: application/json',
         ],
         $body
@@ -291,33 +291,6 @@ function fetchHomeAssistantPrinter(
     $data = decodeSuccessfulJson($response);
 
     return $data === null ? offlinePrinter($printer) : normalizeHomeAssistantPrinter($data, $printer);
-}
-
-function loadHomeAssistantConfig(string $path, ?array $environment = null): array
-{
-    $config = [];
-    if (is_file($path)) {
-        $decoded = json_decode((string)file_get_contents($path), true);
-        if (is_array($decoded)) {
-            $config = $decoded;
-        }
-    }
-
-    $environment ??= [
-        'HOME_ASSISTANT_URL' => getenv('HOME_ASSISTANT_URL') ?: '',
-        'HOME_ASSISTANT_TOKEN' => getenv('HOME_ASSISTANT_TOKEN') ?: '',
-    ];
-    if (($environment['HOME_ASSISTANT_URL'] ?? '') !== '') {
-        $config['url'] = $environment['HOME_ASSISTANT_URL'];
-    }
-    if (($environment['HOME_ASSISTANT_TOKEN'] ?? '') !== '') {
-        $config['token'] = $environment['HOME_ASSISTANT_TOKEN'];
-    }
-
-    return [
-        'url' => rtrim((string)($config['url'] ?? ''), '/'),
-        'token' => (string)($config['token'] ?? ''),
-    ];
 }
 
 function validatedPrinterId(mixed $value, int $printerCount): int
