@@ -86,13 +86,21 @@ for _ in {1..50}; do
     sleep 0.1
 done
 api_port=$(cat "$port_file")
+fake_bin="${temporary_dir}/fake-bin"
+reload_log="${temporary_dir}/php-fpm-reload.log"
+mkdir "$fake_bin"
+printf '%s\n' '#!/usr/bin/env bash' 'printf '\''%s\n'\'' "$*" >>"$PHP_FPM_RELOAD_LOG"' >"${fake_bin}/systemctl"
+chmod +x "${fake_bin}/systemctl"
 
-STAGING_DIR="$staging_link" DEPLOYMENT_DIR="${temporary_dir}/staging-deploy" \
+PATH="${fake_bin}:$PATH" STAGING_DIR="$staging_link" DEPLOYMENT_DIR="${temporary_dir}/staging-deploy" \
 STAGING_LOCK_FILE="${temporary_dir}/staging.lock" RUNTIME_DIR="$temporary_dir" RELEASE_GROUP="$(id -gn)" REPO_URL="$remote_repo" \
-GITHUB_API_URL="http://127.0.0.1:${api_port}/runs" GITHUB_TOKEN='deployment-test-token' RUN_ONCE=1 \
+GITHUB_API_URL="http://127.0.0.1:${api_port}/runs" GITHUB_TOKEN='deployment-test-token' \
+PHP_FPM_SERVICE='test-php-fpm' PHP_FPM_RELOAD_LOG="$reload_log" RUN_ONCE=1 \
     "$repo_root/deploy-staging.sh" >/dev/null
 [[ "$(basename "$(readlink -f "$staging_link")")" == "$second_commit" ]]
 [[ -f "$(readlink -f "$staging_link")/.staging" ]]
+[[ "$(stat -c '%a' "$(readlink -f "$staging_link")")" == '750' ]]
+[[ "$(cat "$reload_log")" == 'reload test-php-fpm' ]]
 [[ "$(cat "$header_file")" == 'Bearer deployment-test-token' ]]
 
 printf 'Atomic deployment tests passed\n'

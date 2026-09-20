@@ -16,10 +16,14 @@ readonly workflow_name="${WORKFLOW_NAME:-php.yml}"
 readonly branch_name="${BRANCH_NAME:-main}"
 readonly poll_seconds="${POLL_SECONDS:-300}"
 readonly github_api_url="${GITHUB_API_URL:-https://api.github.com/repos/${repo_owner}/${repo_name}/actions/workflows/${workflow_name}/runs}"
+readonly php_fpm_service="${PHP_FPM_SERVICE-php8.1-fpm}"
 
 for command_name in curl flock git install jq; do
     command -v "$command_name" >/dev/null 2>&1 || { printf 'Missing dependency: %s\n' "$command_name" >&2; exit 1; }
 done
+if [[ -n "$php_fpm_service" ]]; then
+    command -v systemctl >/dev/null 2>&1 || { printf 'Missing dependency: systemctl\n' >&2; exit 1; }
+fi
 
 exec 9>"$lock_file"
 flock -n 9 || { printf 'Another staging deployer is already running.\n' >&2; exit 1; }
@@ -70,14 +74,24 @@ deploy_commit() {
         git --git-dir="$repository_dir" --work-tree="$temporary_release" checkout --quiet --force "$commit" -- .
         install -m 0640 /dev/null "$temporary_release/.staging"
         chgrp -R "$release_group" "$temporary_release"
+        chmod 0750 "$temporary_release"
         mv "$temporary_release" "$release"
         temporary_release=''
     fi
     [[ -f "$release/.staging" ]] || { printf 'Release %s lacks its staging marker.\n' "$release" >&2; return 1; }
 
+    local previous_target
+    previous_target=$(readlink -f "$staging_link")
     local new_link="${staging_link}.new.$$"
     ln -s "$release" "$new_link"
     mv -Tf "$new_link" "$staging_link"
+    if [[ -n "$php_fpm_service" ]] && ! systemctl reload "$php_fpm_service"; then
+        ln -s "$previous_target" "$new_link"
+        mv -Tf "$new_link" "$staging_link"
+        systemctl reload "$php_fpm_service" || true
+        printf 'PHP-FPM reload failed; restored %s.\n' "$previous_target" >&2
+        return 1
+    fi
     printf 'Staging now runs successful %s commit %s\n' "$branch_name" "$commit"
 }
 
