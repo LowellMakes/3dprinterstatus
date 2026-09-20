@@ -39,7 +39,8 @@ function offlinePrinter(array $printer): array
 {
     return [
         'name' => (string)($printer['printerName'] ?? 'Unknown printer'),
-        'model' => (string)($printer['model'] ?? ''),
+        'model' => printerDisplayModel($printer),
+        'file' => '',
         'status' => 'Offline',
         'progress' => '',
         'elapsed' => '',
@@ -106,6 +107,34 @@ function decodeSuccessfulJson(array $response): ?array
     return is_array($decoded) ? $decoded : null;
 }
 
+function octoPrintProfileModel(array $profiles): string
+{
+    foreach (($profiles['profiles'] ?? []) as $profile) {
+        if (!is_array($profile) || !($profile['current'] ?? false)) {
+            continue;
+        }
+        $model = trim((string)($profile['model'] ?? ''));
+        return strcasecmp($model, 'Generic RepRap Printer') === 0 ? '' : $model;
+    }
+
+    return '';
+}
+
+function octoPrintJobFile(array $job, string $state): string
+{
+    if (!in_array($state, ['printing', 'paused', 'pausing', 'starting', 'resuming', 'finishing', 'cancelling'], true)) {
+        return '';
+    }
+    foreach (['display', 'name', 'path'] as $key) {
+        $value = trim((string)($job['job']['file'][$key] ?? ''));
+        if ($value !== '') {
+            return basename($value);
+        }
+    }
+
+    return '';
+}
+
 function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
 {
     $request ??= 'httpJsonRequest';
@@ -121,10 +150,11 @@ function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
 
     $headers = ['X-Api-Key: ' . $apiKey];
     $job = decodeSuccessfulJson($request($baseUrl . '/api/job', $headers, null));
-    $settings = decodeSuccessfulJson($request($baseUrl . '/api/settings', $headers, null));
     if ($job === null) {
         return offlinePrinter($printer);
     }
+    $settings = decodeSuccessfulJson($request($baseUrl . '/api/settings', $headers, null));
+    $profiles = decodeSuccessfulJson($request($baseUrl . '/api/printerprofiles', $headers, null));
 
     $state = strtolower((string)($job['state'] ?? 'offline'));
     if ($state === 'offline') {
@@ -140,7 +170,8 @@ function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
 
     return [
         'name' => (string)($settings['appearance']['name'] ?? $printer['printerName'] ?? 'Unknown printer'),
-        'model' => '',
+        'model' => printerDisplayModel($printer, null, octoPrintProfileModel($profiles ?? [])),
+        'file' => octoPrintJobFile($job, $state),
         'status' => $state === 'operational' ? 'Ready' : (string)($job['state'] ?? 'Unknown'),
         'progress' => $progress,
         'elapsed' => $printTime === null ? '' : formatDuration($printTime),
@@ -162,18 +193,23 @@ function buildHomeAssistantTemplate(string $entityPrefix): string
     $progressEntity = "sensor.{$entityPrefix}_print_progress";
     $remainingEntity = "sensor.{$entityPrefix}_remaining_time";
     $startEntity = "sensor.{$entityPrefix}_start_time";
+    $gcodeFilenameEntity = "sensor.{$entityPrefix}_gcode_filename";
+    $taskNameEntity = "sensor.{$entityPrefix}_task_name";
 
     return "{{ {"
         . "'name': states('{$nameEntity}'), "
         . "'device_name_by_user': device_attr('{$statusEntity}', 'name_by_user'), "
         . "'device_name': device_attr('{$statusEntity}', 'name'), "
+        . "'manufacturer': device_attr('{$statusEntity}', 'manufacturer'), "
         . "'model': device_attr('{$statusEntity}', 'model'), "
         . "'online': is_state('{$onlineEntity}', 'on'), "
         . "'status': states('{$statusEntity}'), "
         . "'progress': states('{$progressEntity}'), "
         . "'remaining_hours': states('{$remainingEntity}'), "
         . "'remaining_unit': state_attr('{$remainingEntity}', 'unit_of_measurement'), "
-        . "'start_time': states('{$startEntity}')"
+        . "'start_time': states('{$startEntity}'), "
+        . "'gcode_filename': states('{$gcodeFilenameEntity}'), "
+        . "'task_name': states('{$taskNameEntity}')"
         . "} | to_json }}";
 }
 
@@ -182,6 +218,24 @@ function usefulHomeAssistantValue(mixed $value): bool
     return $value !== null
         && $value !== ''
         && !in_array(strtolower((string)$value), ['unknown', 'unavailable', 'none'], true);
+}
+
+function printerDisplayModel(array $printer, mixed $manufacturer = null, mixed $model = null): string
+{
+    $override = trim((string)($printer['modelOverride'] ?? ''));
+    if ($override !== '') {
+        return $override;
+    }
+    $detectedModel = usefulHomeAssistantValue($model) ? trim((string)$model) : '';
+    $detectedManufacturer = usefulHomeAssistantValue($manufacturer) ? trim((string)$manufacturer) : '';
+    if ($detectedModel !== '' && $detectedManufacturer !== '') {
+        if (stripos($detectedModel, $detectedManufacturer) === 0) {
+            return $detectedModel;
+        }
+        return $detectedManufacturer . ' ' . $detectedModel;
+    }
+
+    return $detectedModel !== '' ? $detectedModel : (string)($printer['model'] ?? '');
 }
 
 function normalizeHomeAssistantPrinter(
@@ -211,9 +265,17 @@ function normalizeHomeAssistantPrinter(
             break;
         }
     }
-    $model = usefulHomeAssistantValue($data['model'] ?? null)
-        ? (string)$data['model']
-        : (string)($printer['model'] ?? '');
+    $model = printerDisplayModel($printer, $data['manufacturer'] ?? null, $data['model'] ?? null);
+
+    $file = '';
+    if (in_array($rawStatus, ['running', 'pause', 'paused', 'prepare', 'init', 'slicing'], true)) {
+        foreach (['gcode_filename', 'task_name'] as $fileSource) {
+            if (usefulHomeAssistantValue($data[$fileSource] ?? null)) {
+                $file = basename((string)$data[$fileSource]);
+                break;
+            }
+        }
+    }
 
     $progress = '';
     if (is_numeric($data['progress'] ?? null)) {
@@ -245,6 +307,7 @@ function normalizeHomeAssistantPrinter(
     return [
         'name' => $name,
         'model' => $model,
+        'file' => $file,
         'status' => $status,
         'progress' => $progress,
         'elapsed' => $elapsed,

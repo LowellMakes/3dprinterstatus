@@ -9,31 +9,64 @@
     <link rel="stylesheet" type="text/css" href="styles.css">
 </head>
 <body>
+    <svg class="icon-sprite" aria-hidden="true">
+        <symbol id="icon-printer-3d" viewBox="0 0 24 24">
+            <path d="M5 3h14v5H5zM7 8v6h10V8M12 14v3M8 21h8v-4H8z"/>
+            <path d="M9 6h6M10 11h4"/>
+        </symbol>
+        <symbol id="icon-total" viewBox="0 0 24 24">
+            <path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z"/><path d="m4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5"/>
+        </symbol>
+        <symbol id="icon-printing" viewBox="0 0 24 24">
+            <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3"/>
+        </symbol>
+        <symbol id="icon-ready" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"/><path d="m8 12 2.6 2.6L16.5 9"/>
+        </symbol>
+        <symbol id="icon-failed" viewBox="0 0 24 24">
+            <path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v5M12 17.5h.01"/>
+        </symbol>
+        <symbol id="icon-offline" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"/><path d="m8 8 8 8"/>
+        </symbol>
+        <symbol id="icon-file" viewBox="0 0 24 24">
+            <path d="M6 3h8l4 4v14H6zM14 3v5h5"/><path d="M9 13h6M9 17h4"/>
+        </symbol>
+        <symbol id="icon-progress" viewBox="0 0 24 24">
+            <path d="M4 16a8 8 0 1 1 16 0"/><path d="m12 16 4-5M4 20h16"/>
+        </symbol>
+        <symbol id="icon-clock" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>
+        </symbol>
+        <symbol id="icon-timer" viewBox="0 0 24 24">
+            <circle cx="12" cy="13" r="8"/><path d="M9 2h6M12 5V2M18 7l2-2M12 13l3-2"/>
+        </symbol>
+    </svg>
     <main class="dashboard">
         <section class="overview-panel" aria-label="Printer overview">
             <div class="summary-grid">
                 <article class="summary-card summary-total">
-                    <span class="summary-icon" aria-hidden="true">◆</span>
+                    <span class="summary-icon" aria-hidden="true"><svg class="icon"><use href="#icon-total"></use></svg></span>
                     <span class="summary-label">Total</span>
                     <strong id="summary-total">0</strong>
                 </article>
                 <article class="summary-card summary-printing">
-                    <span class="summary-icon" aria-hidden="true">▣</span>
+                    <span class="summary-icon" aria-hidden="true"><svg class="icon"><use href="#icon-printing"></use></svg></span>
                     <span class="summary-label">Printing</span>
                     <strong id="summary-printing">0</strong>
                 </article>
                 <article class="summary-card summary-ready">
-                    <span class="summary-icon" aria-hidden="true">●</span>
+                    <span class="summary-icon" aria-hidden="true"><svg class="icon"><use href="#icon-ready"></use></svg></span>
                     <span class="summary-label">Ready</span>
                     <strong id="summary-ready">0</strong>
                 </article>
                 <article class="summary-card summary-failed">
-                    <span class="summary-icon" aria-hidden="true">▲</span>
+                    <span class="summary-icon" aria-hidden="true"><svg class="icon"><use href="#icon-failed"></use></svg></span>
                     <span class="summary-label">Failed</span>
                     <strong id="summary-failed">0</strong>
                 </article>
                 <article class="summary-card summary-offline">
-                    <span class="summary-icon" aria-hidden="true">⊘</span>
+                    <span class="summary-icon" aria-hidden="true"><svg class="icon"><use href="#icon-offline"></use></svg></span>
                     <span class="summary-label">Offline</span>
                     <strong id="summary-offline">0</strong>
                 </article>
@@ -51,18 +84,19 @@
                 <table>
                     <thead id="table-header" hidden>
                         <tr>
-                            <th scope="col">Printer</th>
-                            <th scope="col">Status</th>
-                            <th scope="col">Progress</th>
-                            <th scope="col">Elapsed</th>
-                            <th scope="col">Remaining</th>
+                            <th scope="col"><svg class="header-icon" aria-hidden="true"><use href="#icon-printer-3d"></use></svg>Printer</th>
+                            <th scope="col"><svg class="header-icon" aria-hidden="true"><use href="#icon-ready"></use></svg>Status</th>
+                            <th scope="col"><svg class="header-icon" aria-hidden="true"><use href="#icon-progress"></use></svg>Progress</th>
+                            <th scope="col"><svg class="header-icon" aria-hidden="true"><use href="#icon-file"></use></svg>File</th>
+                            <th scope="col"><svg class="header-icon" aria-hidden="true"><use href="#icon-clock"></use></svg>Elapsed</th>
+                            <th scope="col"><svg class="header-icon" aria-hidden="true"><use href="#icon-timer"></use></svg>Remaining</th>
                         </tr>
                     </thead>
                     <tbody id="printerData"></tbody>
                 </table>
             </div>
             <div id="loading-state" class="loading-state" role="status">
-                <span class="loading-printer" aria-hidden="true">▣</span>
+                <span class="loading-printer" aria-hidden="true"><svg class="icon"><use href="#icon-printer-3d"></use></svg></span>
                 <strong>Loading printer data</strong>
                 <span>Connecting to the factory floor…</span>
             </div>
@@ -111,10 +145,19 @@
                 ));
             }
 
+            function createIcon(name, className) {
+                const svg = $(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
+                    .attr('aria-hidden', 'true')
+                    .addClass(className || 'icon');
+                const use = $(document.createElementNS('http://www.w3.org/2000/svg', 'use'))
+                    .attr('href', '#icon-' + name);
+                return svg.append(use);
+            }
+
             function createStatusBadge(status, label) {
                 const badge = $('<span>').addClass('status-badge status-' + status);
-                const symbols = { printing: '▣', ready: '●', failed: '▲', offline: '⊘' };
-                badge.append($('<span>').attr('aria-hidden', 'true').text(symbols[status]));
+                const icons = { printing: 'printing', ready: 'ready', failed: 'failed', offline: 'offline' };
+                badge.append(createIcon(icons[status], 'badge-icon'));
                 badge.append(document.createTextNode(label || status));
                 return badge;
             }
@@ -133,8 +176,9 @@
                     const row = $('<tr>').addClass('printer-row row-' + status);
 
                     const printerCell = $('<td>').attr('data-label', 'Printer').addClass('printer-cell');
-                    printerCell.append($('<span>').addClass('printer-mark').attr('aria-hidden', 'true').text('▣'));
-                    printerCell.append($('<strong>').text(identity));
+                    printerCell.append($('<span>').addClass('printer-mark').attr('aria-hidden', 'true')
+                        .append(createIcon('printer-3d')));
+                    printerCell.append($('<strong>').attr('title', identity).text(identity));
                     row.append(printerCell);
 
                     row.append(
@@ -148,6 +192,8 @@
                     progressCell.append(track);
                     row.append(progressCell);
 
+                    row.append($('<td>').attr('data-label', 'File').addClass('file-cell')
+                        .attr('title', printer.file || '').text(printer.file || '—'));
                     row.append($('<td>').attr('data-label', 'Elapsed').text(printer.elapsed || '—'));
                     row.append($('<td>').attr('data-label', 'Remaining').text(printer.left || '—'));
                     body.append(row);

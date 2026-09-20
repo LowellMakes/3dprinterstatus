@@ -24,6 +24,7 @@ $printer = $id !== null ? $printers[$id] : [
     'provider' => 'octoprint',
     'printerName' => '',
     'model' => '',
+    'modelOverride' => '',
     'url' => '',
     'apiKey' => '',
     'entityPrefix' => '',
@@ -38,6 +39,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'provider' => $provider,
         'printerName' => (string)($printer['printerName'] ?? ''),
         'model' => (string)($printer['model'] ?? ''),
+        'modelOverride' => trim((string)($_POST['modelOverride'] ?? '')),
         'active' => isset($_POST['active']),
     ];
 
@@ -62,7 +64,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } else {
             $data['printerName'] = $live['name'];
-            $data['model'] = $live['model'];
+            if ($data['modelOverride'] === '') {
+                $data['model'] = $live['model'];
+            }
         }
 
         if ($id !== null) {
@@ -122,6 +126,19 @@ $provider = printerProvider($printer);
                     <option value="octoprint" <?= $provider === 'octoprint' ? 'selected' : '' ?>>OctoPrint</option>
                     <option value="homeassistant" <?= $provider === 'homeassistant' ? 'selected' : '' ?>>Home Assistant / Bambu Lab</option>
                 </select>
+            </div>
+
+            <div class="field-group">
+                <label for="model-override">Make / model override <span class="optional">Optional</span></label>
+                <input id="model-override" type="text" name="modelOverride"
+                       value="<?= htmlspecialchars((string)($printer['modelOverride'] ?? '')) ?>"
+                       placeholder="Auto-detect from provider">
+                <span class="field-help">
+                    Leave blank to use provider metadata.
+                    <?php if (!empty($printer['model'])): ?>
+                        Currently detected as <?= htmlspecialchars((string)$printer['model']) ?>.
+                    <?php endif; ?>
+                </span>
             </div>
 
             <div class="provider-fields field-grid" data-provider="octoprint">

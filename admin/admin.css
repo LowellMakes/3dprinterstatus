@@ -124,6 +124,13 @@ h2 {
     color: var(--muted);
 }
 
+.optional {
+    margin-left: 4px;
+    color: var(--muted);
+    font-size: 0.78em;
+    font-weight: 600;
+}
+
 .subtitle,
 .section-description {
     margin-bottom: 0;

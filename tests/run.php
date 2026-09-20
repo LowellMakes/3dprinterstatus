@@ -289,13 +289,47 @@ test('Home Assistant provider is recognized case-insensitively', function (): vo
     assertSameValue('homeassistant', printerProvider(['provider' => 'HomeAssistant']));
 });
 
+test('manual model override wins over provider and cached metadata', function (): void {
+    $printer = ['model' => 'Cached A1', 'modelOverride' => 'Workshop Custom'];
+
+    assertSameValue('Workshop Custom', printerDisplayModel($printer, 'Bambu Lab', 'A1'));
+    assertSameValue('Workshop Custom', offlinePrinter($printer)['model']);
+});
+
+test('OctoPrint profile metadata falls back to the cached model', function (): void {
+    $printer = ['model' => 'Cached Prusa'];
+
+    foreach ([
+        [],
+        ['profiles' => ['default' => ['current' => false, 'model' => 'Prusa MK3S']]],
+        ['profiles' => ['default' => ['current' => true, 'model' => 'Generic RepRap Printer']]],
+        ['profiles' => ['default' => 'malformed']],
+    ] as $profiles) {
+        assertSameValue('', octoPrintProfileModel($profiles));
+        assertSameValue('Cached Prusa', printerDisplayModel($printer, null, octoPrintProfileModel($profiles)));
+    }
+});
+
+test('OctoPrint keeps the active filename through print transition states', function (): void {
+    $job = ['job' => ['file' => ['display' => 'part.gcode']]];
+
+    foreach (['printing', 'paused', 'pausing', 'starting', 'resuming', 'finishing', 'cancelling'] as $state) {
+        assertSameValue('part.gcode', octoPrintJobFile($job, $state));
+    }
+    assertSameValue('', octoPrintJobFile($job, 'operational'));
+});
+
 test('OctoPrint response is normalized without changing legacy behavior', function (): void {
     $responses = [
         '/api/job' => [
             'state' => 'Printing',
+            'job' => ['file' => ['display' => 'bracket-v2.gcode', 'name' => 'bracket-v2.gcode']],
             'progress' => ['printTime' => 1800, 'printTimeLeft' => 1800],
         ],
         '/api/settings' => ['appearance' => ['name' => 'Prusa MK3S']],
+        '/api/printerprofiles' => ['profiles' => [
+            '_default' => ['current' => true, 'model' => 'Prusa MK3S'],
+        ]],
     ];
     $request = function (string $url, array $headers, ?string $body) use ($responses): array {
         $path = parse_url($url, PHP_URL_PATH);
@@ -313,12 +347,30 @@ test('OctoPrint response is normalized without changing legacy behavior', functi
     ], $request);
 
     assertSameValue('Prusa MK3S', $result['name']);
-    assertSameValue('', $result['model']);
+    assertSameValue('Prusa MK3S', $result['model']);
+    assertSameValue('bracket-v2.gcode', $result['file']);
     assertSameValue('Printing', $result['status']);
     assertSameValue(50, $result['progress']);
     assertSameValue('30mins', $result['elapsed']);
     assertSameValue('30mins', $result['left']);
     assertSameValue('printing', $result['colorClass']);
+});
+
+test('offline OctoPrint stops after the failed job request', function (): void {
+    $calls = [];
+    $request = function (string $url, array $headers, ?string $body) use (&$calls): array {
+        $calls[] = parse_url($url, PHP_URL_PATH);
+        return ['ok' => false, 'status' => 503, 'body' => ''];
+    };
+
+    $result = fetchOctoPrintPrinter([
+        'url' => 'http://octoprint.local',
+        'apiKey' => 'secret',
+        'printerName' => 'Offline printer',
+    ], $request);
+
+    assertSameValue(['/api/job'], $calls);
+    assertSameValue('Offline', $result['status']);
 });
 
 test('Home Assistant template requests Bambu status and device model', function (): void {
@@ -328,7 +380,10 @@ test('Home Assistant template requests Bambu status and device model', function 
     assertContainsText("binary_sensor.bambu_a1_online", $template);
     assertContainsText("sensor.bambu_a1_print_progress", $template);
     assertContainsText("device_attr('sensor.bambu_a1_print_status', 'name_by_user')", $template);
+    assertContainsText("device_attr('sensor.bambu_a1_print_status', 'manufacturer')", $template);
     assertContainsText("device_attr('sensor.bambu_a1_print_status', 'model')", $template);
+    assertContainsText("sensor.bambu_a1_gcode_filename", $template);
+    assertContainsText("sensor.bambu_a1_task_name", $template);
     assertContainsText("state_attr('sensor.bambu_a1_remaining_time', 'unit_of_measurement')", $template);
 });
 
@@ -367,6 +422,7 @@ test('running Bambu state is normalized for the existing status page', function 
     $now = new DateTimeImmutable('2026-09-17T15:00:00-04:00');
     $result = normalizeHomeAssistantPrinter([
         'name' => 'Workshop A1',
+        'manufacturer' => 'Bambu Lab',
         'model' => 'A1',
         'online' => true,
         'status' => 'running',
@@ -374,10 +430,13 @@ test('running Bambu state is normalized for the existing status page', function 
         'remaining_hours' => '1.5',
         'remaining_unit' => 'h',
         'start_time' => '2026-09-17T13:45:00-04:00',
+        'gcode_filename' => 'dragon-v4.gcode.3mf',
+        'task_name' => 'Dragon v4',
     ], ['printerName' => 'Fallback'], $now);
 
     assertSameValue('Workshop A1', $result['name']);
-    assertSameValue('A1', $result['model']);
+    assertSameValue('Bambu Lab A1', $result['model']);
+    assertSameValue('dragon-v4.gcode.3mf', $result['file']);
     assertSameValue('Printing', $result['status']);
     assertSameValue(42, $result['progress']);
     assertSameValue('1hrs, 15mins', $result['elapsed']);
@@ -395,11 +454,13 @@ test('idle and finished Bambu states display as ready', function (): void {
             'progress' => '100',
             'remaining_hours' => '0',
             'start_time' => 'unknown',
+            'gcode_filename' => 'last-print.gcode.3mf',
         ], []);
 
         assertSameValue('Ready', $result['status']);
         assertSameValue('ready', $result['colorClass']);
         assertSameValue('', $result['elapsed']);
+        assertSameValue('', $result['file']);
     }
 });
 
@@ -564,6 +625,25 @@ test('admin connection test submits complete provider fields', function (): void
     assertContainsText("url: $('input[name=\"url\"]').val()", $adminEdit);
     assertContainsText("apiKey: $('input[name=\"apiKey\"]').val()", $adminEdit);
     assertContainsText("entityPrefix: $('input[name=\"entityPrefix\"]').val()", $adminEdit);
+    assertContainsText('name="modelOverride"', $adminEdit);
+    assertContainsText("\$_POST['modelOverride']", $adminEdit);
+});
+
+test('dashboard restores reference iconography glow and print file metadata', function (): void {
+    $index = (string)file_get_contents(__DIR__ . '/../index.php');
+    $styles = (string)file_get_contents(__DIR__ . '/../styles.css');
+
+    foreach (['icon-printer-3d', 'icon-printing', 'icon-ready', 'icon-failed', 'icon-offline', 'icon-file', 'icon-clock', 'icon-timer'] as $icon) {
+        assertContainsText('id="' . $icon . '"', $index);
+    }
+    assertContainsText('data-label', $index);
+    assertContainsText("printer.file || '—'", $index);
+    assertContainsText(".attr('title', identity)", $index);
+    assertContainsText(".attr('title', printer.file || '')", $index);
+    assertContainsText('.summary-printing', $styles);
+    assertContainsText('.summary-ready', $styles);
+    assertContainsText('.summary-failed', $styles);
+    assertContainsText('box-shadow:', $styles);
 });
 
 test('dashboard renders live status summary and progress bars', function (): void {

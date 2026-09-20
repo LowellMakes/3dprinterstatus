@@ -59,10 +59,31 @@ body {
     margin: 0;
     color: var(--text);
     font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 17px;
     background:
         linear-gradient(var(--page-overlay), var(--page-overlay)),
         url("3d-printer-wallpaper.jpg") center / cover fixed;
     transition: color 180ms ease, background-color 180ms ease;
+}
+
+.icon-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.icon,
+.header-icon,
+.badge-icon {
+    width: 1em;
+    height: 1em;
+    display: inline-block;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 button,
@@ -98,42 +119,58 @@ table {
 }
 
 .summary-card {
-    min-height: 68px;
+    min-height: 78px;
     display: grid;
-    grid-template-columns: 30px 1fr auto;
+    grid-template-columns: 34px 1fr auto;
     align-items: center;
-    gap: 8px;
-    padding: 11px 14px;
+    gap: 10px;
+    padding: 12px 15px;
     border: 1px solid var(--border);
     border-radius: 13px;
     background: color-mix(in srgb, var(--panel-strong) 91%, transparent);
 }
 
 .summary-card strong {
-    font-size: 1.6rem;
+    font-size: 1.75rem;
     font-variant-numeric: tabular-nums;
     letter-spacing: -0.04em;
 }
 
 .summary-label {
-    font-size: 0.82rem;
+    font-size: 0.95rem;
     font-weight: 700;
 }
 
 .summary-icon {
-    width: 29px;
-    height: 29px;
+    width: 34px;
+    height: 34px;
     display: grid;
     place-items: center;
     border-radius: 9px;
     color: currentColor;
     background: color-mix(in srgb, currentColor 12%, transparent);
+    font-size: 1.2rem;
 }
 
 .summary-total { color: var(--blue); }
-.summary-printing { color: var(--yellow); }
-.summary-ready { color: var(--green); }
-.summary-failed { color: var(--red); }
+.summary-printing {
+    color: var(--yellow);
+    border-color: color-mix(in srgb, var(--yellow) 42%, var(--border));
+    background: color-mix(in srgb, var(--yellow) 9%, var(--panel-strong));
+    box-shadow: 0 0 22px color-mix(in srgb, var(--yellow) 18%, transparent), inset 0 0 24px color-mix(in srgb, var(--yellow) 7%, transparent);
+}
+.summary-ready {
+    color: var(--green);
+    border-color: color-mix(in srgb, var(--green-bright) 38%, var(--border));
+    background: color-mix(in srgb, var(--green-bright) 8%, var(--panel-strong));
+    box-shadow: 0 0 22px color-mix(in srgb, var(--green-bright) 18%, transparent), inset 0 0 24px color-mix(in srgb, var(--green-bright) 7%, transparent);
+}
+.summary-failed {
+    color: var(--red);
+    border-color: color-mix(in srgb, var(--red) 40%, var(--border));
+    background: color-mix(in srgb, var(--red) 8%, var(--panel-strong));
+    box-shadow: 0 0 22px color-mix(in srgb, var(--red) 17%, transparent), inset 0 0 24px color-mix(in srgb, var(--red) 6%, transparent);
+}
 .summary-offline { color: var(--offline); }
 
 .overview-meta {
@@ -144,7 +181,7 @@ table {
     min-height: 35px;
     padding: 17px 4px 0;
     color: var(--muted);
-    font-size: 0.78rem;
+    font-size: 0.88rem;
 }
 
 .overview-meta p {
@@ -195,26 +232,33 @@ th {
     padding: 16px 18px;
     color: var(--muted);
     background: color-mix(in srgb, var(--panel-strong) 91%, transparent);
-    font-size: 0.67rem;
+    font-size: 0.74rem;
     font-weight: 800;
     letter-spacing: 0.08em;
     text-align: left;
     text-transform: uppercase;
 }
 
-th:nth-child(1) { width: 31%; }
-th:nth-child(2) { width: 15%; }
-th:nth-child(3) { width: 22%; }
-th:nth-child(4),
-th:nth-child(5) { width: 16%; }
+.header-icon {
+    margin-right: 7px;
+    font-size: 1rem;
+    vertical-align: -0.16em;
+}
+
+th:nth-child(1) { width: 26%; }
+th:nth-child(2) { width: 13%; }
+th:nth-child(3) { width: 16%; }
+th:nth-child(4) { width: 21%; }
+th:nth-child(5),
+th:nth-child(6) { width: 12%; }
 
 td {
-    height: 72px;
+    height: 78px;
     padding: 11px 18px;
     border-top: 1px solid var(--border);
     color: var(--muted);
     background: var(--row);
-    font-size: 0.84rem;
+    font-size: 0.95rem;
     font-variant-numeric: tabular-nums;
 }
 
@@ -239,13 +283,14 @@ tr:nth-child(even) td {
 
 .printer-cell strong {
     overflow: hidden;
+    font-size: 1rem;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
 .printer-mark {
-    width: 38px;
-    height: 38px;
+    width: 42px;
+    height: 42px;
     display: grid;
     flex: 0 0 auto;
     place-items: center;
@@ -253,7 +298,7 @@ tr:nth-child(even) td {
     border-radius: 9px;
     color: var(--cyan);
     background: var(--panel-strong);
-    font-size: 1.15rem;
+    font-size: 1.3rem;
 }
 
 .status-badge {
@@ -264,9 +309,21 @@ tr:nth-child(even) td {
     padding: 7px 10px;
     border: 1px solid currentColor;
     border-radius: 8px;
-    font-size: 0.74rem;
+    font-size: 0.84rem;
     font-weight: 750;
     line-height: 1;
+}
+
+.badge-icon {
+    flex: 0 0 auto;
+    font-size: 1.05rem;
+}
+
+.file-cell {
+    overflow: hidden;
+    color: var(--text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .status-printing { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 10%, transparent); }
@@ -420,8 +477,13 @@ tr:nth-child(even) td {
         text-transform: uppercase;
     }
 
-    .printer-row .progress-cell {
+    .printer-row .progress-cell,
+    .printer-row .file-cell {
         grid-column: 1 / -1;
+    }
+
+    .printer-row .file-cell {
+        border-top: 1px solid var(--border);
     }
 }
 

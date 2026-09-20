@@ -123,4 +123,20 @@ status=$(curl --silent --output "${temporary_dir}/connection-response.json" --wr
 [[ "$status" == '400' ]] || { printf 'Expected offline connection-test status 400, got %s\n' "$status" >&2; exit 1; }
 python3 -c 'import json,sys; data=json.load(open(sys.argv[1])); assert data["success"] is False and data["message"]' "${temporary_dir}/connection-response.json"
 
+status=$(curl --silent --output "${temporary_dir}/edit-response.html" --write-out '%{http_code}' \
+    --cookie "${temporary_dir}/cookies" --cookie-jar "${temporary_dir}/cookies" \
+    --data-urlencode "csrf_token=${admin_csrf}" --data-urlencode 'provider=octoprint' \
+    --data-urlencode 'url=http://127.0.0.1:1' --data-urlencode 'apiKey=test-api-key' \
+    --data-urlencode 'modelOverride=Creality Ender 3' --data-urlencode 'active=1' \
+    "http://127.0.0.1:${port}/admin/edit.php?id=1")
+[[ "$status" == '302' ]] || { printf 'Expected model override save status 302, got %s\n' "$status" >&2; exit 1; }
+$php_bin -r '
+    [$script, $path] = $argv;
+    $printers = json_decode((string)file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+    if (($printers[1]["modelOverride"] ?? "") !== "Creality Ender 3") {
+        fwrite(STDERR, "Model override was not persisted.\n");
+        exit(1);
+    }
+' "$printers_file"
+
 printf 'HTTP smoke test passed\n'

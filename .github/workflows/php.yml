@@ -31,8 +31,11 @@ jobs:
           python3 -m py_compile tests/fake_github_api.py
           node --check theme.js
           node --check tests/theme-test.js
+          node --check tests/dashboard-script-test.js
       - name: Run shared theme behavior test
-        run: node tests/theme-test.js
+        run: |
+          node tests/theme-test.js
+          node tests/dashboard-script-test.js
       - name: Enforce live environment naming
         run: tests/naming-test.sh
       - name: Run deployment tests
