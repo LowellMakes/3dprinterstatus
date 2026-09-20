@@ -91,9 +91,9 @@ The PHP process needs read access to the selected config and read/write access t
 
 ## Migrating an existing server
 
-After this version has been merged to `main`, run from a current checkout:
+After this version has been merged to `main`, run from a current checkout and explicitly identify the authentication file from the currently running site:
 
-    sudo SOURCE_DIR="$PWD" deploy/install-server.sh
+    sudo LEGACY_AUTH_FILE=/path/to/current/site/admin/auth.php SOURCE_DIR="$PWD" deploy/install-server.sh
 
 The installer:
 
@@ -135,7 +135,7 @@ Live deployment is deliberately explicit and is never performed by the staging s
 
     sudo deploy-live.sh <commit-or-tag>
 
-`deploy-live.sh` fetches tags and branches, resolves branch names through `origin`, and refuses to run if a `.staging` marker exists. It creates an immutable release under `/var/lib/3dprinterstatus/deploy/releases/live` and atomically switches `/var/www/prod`. The existing `/var/www/prod` web-root path is retained for compatibility with the current Nginx vhost; the environment, configuration, state, cache, release, command, and user-facing terminology are all `live`. On its first run it preserves the existing non-release live tree as a timestamped sibling backup. A deployment lock prevents concurrent live updates.
+`deploy-live.sh` fetches tags and branches, resolves branch names through `origin`, and refuses to run if a `.staging` marker exists. It creates an immutable release under `/var/lib/3dprinterstatus/deploy/releases/live` and atomically switches `/var/www/live`. The existing site remains untouched until its Nginx vhost is intentionally switched to the new live web root. On its first run it preserves any existing non-release live tree as a timestamped sibling backup. A deployment lock prevents concurrent live updates.
 
 ## Adding printers through the admin page
 
@@ -190,3 +190,4 @@ Run PHP syntax checks over the application and deployment scripts:
 
     find . -name '*.php' -print0 | xargs -0 -n1 php -l
     bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh
+    tests/naming-test.sh

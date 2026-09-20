@@ -9,7 +9,7 @@ fi
 
 readonly source_dir="${SOURCE_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 readonly web_group="${WEB_GROUP:-www-data}"
-readonly live_root="${LIVE_ROOT:-/var/www/prod}"
+readonly live_root="${LIVE_ROOT:-/var/www/live}"
 readonly staging_root="${STAGING_ROOT:-/var/www/staging}"
 readonly legacy_private_dir="${LEGACY_PRIVATE_DIR:-/var/www/private}"
 readonly config_dir="${CONFIG_DIR:-/etc/3dprinterstatus}"
@@ -35,13 +35,11 @@ done
 getent group "$web_group" >/dev/null || { printf 'Unknown web group: %s\n' "$web_group" >&2; exit 1; }
 
 legacy_ha_file="${legacy_private_dir}/homeassistant.json"
-legacy_auth_file="${live_root}/admin/auth.php"
-if [[ ! -f "$legacy_auth_file" ]]; then
-    legacy_auth_file="${staging_root}/admin/auth.php"
-fi
+legacy_auth_file="${LEGACY_AUTH_FILE:-}"
 
 if [[ ! -f "${config_dir}/live.json" || ! -f "${config_dir}/staging.json" ]]; then
     [[ -r "$legacy_ha_file" ]] || { printf 'Cannot migrate missing HA config: %s\n' "$legacy_ha_file" >&2; exit 1; }
+    [[ -n "$legacy_auth_file" ]] || { printf 'Set LEGACY_AUTH_FILE to the current site admin/auth.php before migration.\n' >&2; exit 1; }
     [[ -r "$legacy_auth_file" ]] || { printf 'Cannot migrate missing legacy auth file: %s\n' "$legacy_auth_file" >&2; exit 1; }
 fi
 

@@ -27,8 +27,10 @@ jobs:
         run: php tests/run.php
       - name: Check helper syntax
         run: |
-          bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh tests/smoke.sh tests/deployment.sh
+          bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh tests/smoke.sh tests/deployment.sh tests/naming.sh tests/naming-test.sh
           python3 -m py_compile tests/fake_github_api.py
+      - name: Enforce live environment naming
+        run: tests/naming-test.sh
       - name: Run deployment tests
         run: tests/deployment.sh
       - name: Run HTTP smoke test

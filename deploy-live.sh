@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 027
 
-readonly live_link="${LIVE_DIR:-/var/www/prod}"
+readonly live_link="${LIVE_DIR:-/var/www/live}"
 readonly deployment_dir="${DEPLOYMENT_DIR:-/var/lib/3dprinterstatus/deploy}"
 readonly release_group="${RELEASE_GROUP:-www-data}"
 readonly repository_dir="${LIVE_REPOSITORY_DIR:-${deployment_dir}/live.git}"
