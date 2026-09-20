@@ -203,8 +203,11 @@
                     progressCell.append(track);
                     row.append(progressCell);
 
+                    const filePrefix = printer.fileCurrent === false ? 'Last: ' : '';
                     row.append($('<td>').attr('data-label', 'File').addClass('file-cell')
-                        .attr('title', printer.file || '').text(printer.file || '—'));
+                        .toggleClass('file-last', printer.fileCurrent === false && Boolean(printer.file))
+                        .attr('title', printer.file ? filePrefix + printer.file : '')
+                        .text(printer.file ? filePrefix + printer.file : '—'));
                     row.append($('<td>').attr('data-label', 'Elapsed').text(printer.elapsed || '—'));
                     row.append($('<td>').attr('data-label', 'Remaining').text(printer.left || '—'));
                     body.append(row);

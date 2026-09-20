@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/printer_providers.php';
+require_once __DIR__ . '/../lib/job_history.php';
 require_once __DIR__ . '/../lib/app_config.php';
 require_once __DIR__ . '/../deploy/migrate-legacy-auth.php';
 
@@ -351,6 +352,292 @@ test('OctoPrint keeps the active filename through print transition states', func
     assertSameValue('', octoPrintJobFile($job, 'operational'));
 });
 
+test('job history keeps the latest filename after a printer becomes idle', function (): void {
+    $printers = [[
+        'provider' => 'octoprint',
+        'url' => 'http://octoprint.local',
+        'apiKey' => 'not-part-of-the-key',
+        'active' => true,
+    ]];
+    [$printingRows, $history] = mergePrinterJobHistory(
+        $printers,
+        [['name' => 'Ares', 'file' => 'bracket.gcode']],
+        []
+    );
+    assertSameValue('bracket.gcode', $printingRows[0]['file']);
+    assertSameValue(true, $printingRows[0]['fileCurrent']);
+
+    [$idleRows, $retainedHistory] = mergePrinterJobHistory(
+        $printers,
+        [['name' => 'Ares', 'file' => '']],
+        $history
+    );
+    assertSameValue('bracket.gcode', $idleRows[0]['file']);
+    assertSameValue(false, $idleRows[0]['fileCurrent']);
+    assertSameValue($history, $retainedHistory);
+});
+
+test('job history follows stable printer identity rather than display order', function (): void {
+    $ares = ['provider' => 'octoprint', 'url' => 'http://ares.local', 'apiKey' => 'first', 'active' => true];
+    $kestrel = ['provider' => 'homeassistant', 'entityPrefix' => 'bambu_kestrel', 'active' => true];
+    [, $history] = mergePrinterJobHistory(
+        [$ares, $kestrel],
+        [
+            ['name' => 'Ares', 'file' => 'ares.gcode'],
+            ['name' => 'Kestrel', 'file' => 'kestrel.3mf'],
+        ],
+        []
+    );
+
+    [$rows] = mergePrinterJobHistory(
+        [$kestrel, $ares + ['apiKey' => 'rotated-secret']],
+        [
+            ['name' => 'Kestrel', 'file' => ''],
+            ['name' => 'Ares', 'file' => ''],
+        ],
+        $history
+    );
+    assertSameValue('kestrel.3mf', $rows[0]['file']);
+    assertSameValue('ares.gcode', $rows[1]['file']);
+    assertSameValue(false, $rows[0]['fileCurrent']);
+    assertSameValue(false, $rows[1]['fileCurrent']);
+});
+
+test('printers without current or historical jobs retain an empty file', function (): void {
+    [$rows, $history] = mergePrinterJobHistory(
+        [['provider' => 'homeassistant', 'entityPrefix' => 'future_printer', 'active' => true]],
+        [['name' => 'Future printer', 'file' => '']],
+        []
+    );
+    assertSameValue('', $rows[0]['file']);
+    assertSameValue(false, $rows[0]['fileCurrent']);
+    assertSameValue([], $history);
+});
+
+test('job filenames remain valid UTF-8 when truncated at the cache limit', function (): void {
+    $filename = str_repeat('a', 511) . 'é.gcode';
+    $normalized = normalizedJobFilename($filename);
+
+    if (strlen($normalized) > 512 || preg_match('//u', $normalized) !== 1) {
+        throw new RuntimeException('Truncated job filename is not valid UTF-8 within the byte limit.');
+    }
+    json_encode($normalized, JSON_THROW_ON_ERROR);
+
+    $invalid = normalizedJobFilename("bad-\xC3-name.gcode");
+    if (preg_match('//u', $invalid) !== 1) {
+        throw new RuntimeException('Invalid provider filename was not sanitized to UTF-8.');
+    }
+    json_encode($invalid, JSON_THROW_ON_ERROR);
+});
+
+test('job history refuses missing or unsafe printer identities', function (): void {
+    assertSameValue(null, printerJobHistoryKey(['provider' => 'octoprint', 'printerName' => 'Shared name']));
+    assertSameValue(null, printerJobHistoryKey(['provider' => 'homeassistant', 'printerName' => 'Shared name']));
+    assertSameValue(null, printerJobHistoryKey([
+        'provider' => 'octoprint',
+        'url' => 'http://user:password@octoprint.local',
+    ]));
+    assertSameValue(null, printerJobHistoryKey([
+        'provider' => 'octoprint',
+        'url' => 'http://octoprint.local/?token=secret',
+    ]));
+
+    $first = printerJobHistoryKey([
+        'provider' => 'octoprint',
+        'url' => 'HTTP://OCTOPRINT.LOCAL/',
+        'apiKey' => 'first-secret',
+    ]);
+    $second = printerJobHistoryKey([
+        'provider' => 'octoprint',
+        'url' => 'http://octoprint.local',
+        'apiKey' => 'rotated-secret',
+    ]);
+    assertSameValue($first, $second);
+});
+
+test('job history is persisted separately and malformed entries are ignored', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-history-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create history test file.');
+    }
+    unlink($path);
+    $key = str_repeat('a', 64);
+
+    try {
+        writePrinterJobHistory($path, [$key => 'folder/last-job.gcode']);
+        assertSameValue([$key => 'last-job.gcode'], loadPrinterJobHistory($path));
+
+        file_put_contents($path, json_encode([
+            'invalid-key' => 'ignored.gcode',
+            str_repeat('b', 64) => '',
+            str_repeat('c', 64) => ['nested' => 'array.gcode'],
+            str_repeat('d', 64) => 1234,
+            str_repeat('e', 64) => true,
+        ], JSON_THROW_ON_ERROR));
+        assertSameValue([], loadPrinterJobHistory($path));
+    } finally {
+        if (is_file($path)) {
+            unlink($path);
+        }
+    }
+});
+
+test('locked job-history updates preserve filenames learned by separate refreshes', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-history-lock-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create locked history test file.');
+    }
+    unlink($path);
+    $printers = [
+        ['provider' => 'octoprint', 'url' => 'http://ares.local', 'active' => true],
+        ['provider' => 'homeassistant', 'entityPrefix' => 'bambu_kestrel', 'active' => true],
+    ];
+
+    try {
+        applyPrinterJobHistory($path, $printers, [
+            ['name' => 'Ares', 'file' => 'ares.gcode'],
+            ['name' => 'Kestrel', 'file' => ''],
+        ]);
+        applyPrinterJobHistory($path, $printers, [
+            ['name' => 'Ares', 'file' => ''],
+            ['name' => 'Kestrel', 'file' => 'kestrel.3mf'],
+        ]);
+
+        $history = loadPrinterJobHistory($path);
+        assertSameValue('ares.gcode', $history[printerJobHistoryKey($printers[0])]);
+        assertSameValue('kestrel.3mf', $history[printerJobHistoryKey($printers[1])]);
+    } finally {
+        foreach ([$path, $path . '.lock'] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
+            }
+        }
+    }
+});
+
+test('concurrent job-history updates do not lose filenames', function (): void {
+    if (!function_exists('proc_open')) {
+        return;
+    }
+
+    $historyPath = tempnam(sys_get_temp_dir(), '3dps-history-race-');
+    if ($historyPath === false) {
+        throw new RuntimeException('Could not create concurrent history test file.');
+    }
+    unlink($historyPath);
+    $gatePath = $historyPath . '.gate';
+    $processes = [];
+    $workerCount = 8;
+
+    try {
+        for ($index = 0; $index < $workerCount; $index++) {
+            $process = proc_open([
+                PHP_BINARY,
+                __DIR__ . '/job-history-worker.php',
+                $historyPath,
+                $gatePath,
+                (string)$index,
+                "http://printer-{$index}.local",
+                "job-{$index}.gcode",
+            ], [
+                0 => ['file', '/dev/null', 'r'],
+                1 => ['file', '/dev/null', 'a'],
+                2 => ['file', '/dev/null', 'a'],
+            ], $pipes);
+            if (!is_resource($process)) {
+                throw new RuntimeException('Could not start job-history worker.');
+            }
+            $processes[] = $process;
+        }
+
+        $deadline = microtime(true) + 10;
+        while (count(glob($gatePath . '.ready.*') ?: []) < $workerCount) {
+            if (microtime(true) >= $deadline) {
+                throw new RuntimeException('Job-history workers did not become ready.');
+            }
+            usleep(1000);
+        }
+        touch($gatePath);
+
+        foreach ($processes as $process) {
+            assertSameValue(0, proc_close($process), 'job-history worker exit status');
+        }
+        $processes = [];
+
+        $history = loadPrinterJobHistory($historyPath);
+        assertSameValue($workerCount, count($history));
+        for ($index = 0; $index < $workerCount; $index++) {
+            $key = printerJobHistoryKey([
+                'provider' => 'octoprint',
+                'url' => "http://printer-{$index}.local",
+            ]);
+            assertSameValue("job-{$index}.gcode", $history[$key] ?? null);
+        }
+    } finally {
+        foreach ($processes as $process) {
+            proc_terminate($process);
+            proc_close($process);
+        }
+        foreach (glob($gatePath . '.ready.*') ?: [] as $readyPath) {
+            unlink($readyPath);
+        }
+        foreach ([$historyPath, $historyPath . '.lock', $gatePath] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
+            }
+        }
+    }
+});
+
+test('job-history storage failure does not hide current printer data', function (): void {
+    $rows = applyPrinterJobHistory(
+        '/does/not/exist/printer-history.json',
+        [['provider' => 'octoprint', 'url' => 'http://ares.local', 'active' => true]],
+        [['name' => 'Ares', 'file' => 'current.gcode']],
+        static function (string $message): void {
+        }
+    );
+    assertSameValue('current.gcode', $rows[0]['file']);
+    assertSameValue(true, $rows[0]['fileCurrent']);
+});
+
+test('busy job-history lock falls back to current data within a bounded time', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-history-busy-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create busy-lock test file.');
+    }
+    unlink($path);
+    $lock = fopen($path . '.lock', 'c');
+    if ($lock === false || !flock($lock, LOCK_EX)) {
+        throw new RuntimeException('Could not hold the history test lock.');
+    }
+
+    try {
+        $started = microtime(true);
+        $rows = applyPrinterJobHistory(
+            $path,
+            [['provider' => 'octoprint', 'url' => 'http://ares.local', 'active' => true]],
+            [['name' => 'Ares', 'file' => 'current.gcode']],
+            static function (string $message): void {
+            }
+        );
+        $elapsed = microtime(true) - $started;
+        if ($elapsed > 0.75) {
+            throw new RuntimeException("Busy history lock blocked for {$elapsed} seconds.");
+        }
+        assertSameValue('current.gcode', $rows[0]['file']);
+        assertSameValue(true, $rows[0]['fileCurrent']);
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        foreach ([$path, $path . '.lock'] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
+            }
+        }
+    }
+});
+
 test('OctoPrint response is normalized without changing legacy behavior', function (): void {
     $responses = [
         '/api/job' => [
@@ -689,6 +976,15 @@ test('dashboard uses locally cached brand icons beside printer names', function 
     }
 });
 
+test('dashboard distinguishes current files from cached last-job filenames', function (): void {
+    $index = (string)file_get_contents(__DIR__ . '/../index.php');
+    $styles = (string)file_get_contents(__DIR__ . '/../styles.css');
+
+    assertContainsText("printer.fileCurrent === false ? 'Last: ' : ''", $index);
+    assertContainsText(".toggleClass('file-last', printer.fileCurrent === false", $index);
+    assertContainsText('.file-last', $styles);
+});
+
 test('dashboard restores reference iconography glow and print file metadata', function (): void {
     $index = (string)file_get_contents(__DIR__ . '/../index.php');
     $styles = (string)file_get_contents(__DIR__ . '/../styles.css');
@@ -697,9 +993,9 @@ test('dashboard restores reference iconography glow and print file metadata', fu
         assertContainsText('id="' . $icon . '"', $index);
     }
     assertContainsText('data-label', $index);
-    assertContainsText("printer.file || '—'", $index);
+    assertContainsText("printer.file ? filePrefix + printer.file : '—'", $index);
     assertContainsText(".attr('title', identity)", $index);
-    assertContainsText(".attr('title', printer.file || '')", $index);
+    assertContainsText(".attr('title', printer.file ? filePrefix + printer.file : '')", $index);
     assertContainsText('.summary-printing', $styles);
     assertContainsText('.summary-ready', $styles);
     assertContainsText('.summary-failed', $styles);

@@ -333,6 +333,11 @@ tr:nth-child(even) td {
     white-space: nowrap;
 }
 
+.file-last {
+    color: var(--muted);
+    font-style: italic;
+}
+
 .status-printing { color: var(--yellow); background: color-mix(in srgb, var(--yellow) 10%, transparent); }
 .status-ready { color: var(--green); background: color-mix(in srgb, var(--green) 10%, transparent); }
 .status-failed { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); }
