@@ -35,11 +35,79 @@ function durationToSeconds(float|int $value, ?string $unit): float
     return (float)$value * $multiplier;
 }
 
+function normalizedKnownPrinterBrand(mixed $value): string
+{
+    if (!usefulHomeAssistantValue($value)) {
+        return '';
+    }
+
+    $value = trim((string)$value);
+    if (preg_match('/\bbambu(?:\s+lab)?\b/i', $value)) {
+        return 'Bambu Lab';
+    }
+    if (preg_match('/\b(?:original\s+)?prusa\b/i', $value)) {
+        return 'Prusa Research';
+    }
+    if (preg_match('/\bcreality\b|\bender\b/i', $value)) {
+        return 'Creality';
+    }
+
+    return '';
+}
+
+function printerBrand(array $printer, mixed $manufacturer = null, mixed $model = null): string
+{
+    $override = $printer['brandOverride'] ?? null;
+    if (usefulHomeAssistantValue($override)) {
+        return normalizedKnownPrinterBrand($override) ?: trim((string)$override);
+    }
+
+    if (usefulHomeAssistantValue($manufacturer)) {
+        return normalizedKnownPrinterBrand($manufacturer) ?: trim((string)$manufacturer);
+    }
+
+    $currentModelBrand = normalizedKnownPrinterBrand($model);
+    if ($currentModelBrand !== '') {
+        return $currentModelBrand;
+    }
+
+    $modelOverrideBrand = normalizedKnownPrinterBrand($printer['modelOverride'] ?? null);
+    if ($modelOverrideBrand !== '') {
+        return $modelOverrideBrand;
+    }
+
+    $entityPrefix = strtolower(trim((string)($printer['entityPrefix'] ?? '')));
+    if (preg_match('/^bambu(?:_|$)/', $entityPrefix)) {
+        return 'Bambu Lab';
+    }
+
+    $cachedBrand = $printer['brand'] ?? null;
+    if (usefulHomeAssistantValue($cachedBrand)) {
+        return normalizedKnownPrinterBrand($cachedBrand) ?: trim((string)$cachedBrand);
+    }
+
+    return normalizedKnownPrinterBrand($printer['model'] ?? null);
+}
+
+function printerBrandIcon(string $brand): string
+{
+    return match (strtolower(trim($brand))) {
+        'bambu', 'bambu lab' => 'bambu-lab',
+        'prusa', 'prusa research', 'original prusa' => 'prusa-research',
+        'creality' => 'creality',
+        default => 'generic',
+    };
+}
+
 function offlinePrinter(array $printer): array
 {
+    $brand = printerBrand($printer);
+
     return [
         'name' => (string)($printer['printerName'] ?? 'Unknown printer'),
         'model' => printerDisplayModel($printer),
+        'brand' => $brand,
+        'brandIcon' => printerBrandIcon($brand),
         'file' => '',
         'status' => 'Offline',
         'progress' => '',
@@ -155,6 +223,7 @@ function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
     }
     $settings = decodeSuccessfulJson($request($baseUrl . '/api/settings', $headers, null));
     $profiles = decodeSuccessfulJson($request($baseUrl . '/api/printerprofiles', $headers, null));
+    $profileModel = octoPrintProfileModel($profiles ?? []);
 
     $state = strtolower((string)($job['state'] ?? 'offline'));
     if ($state === 'offline') {
@@ -168,9 +237,13 @@ function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
         $progress = (int)(($printTime / ($printTime + $printTimeLeft)) * 100);
     }
 
+    $brand = printerBrand($printer, null, $profileModel);
+
     return [
         'name' => (string)($settings['appearance']['name'] ?? $printer['printerName'] ?? 'Unknown printer'),
-        'model' => printerDisplayModel($printer, null, octoPrintProfileModel($profiles ?? [])),
+        'model' => printerDisplayModel($printer, null, $profileModel),
+        'brand' => $brand,
+        'brandIcon' => printerBrandIcon($brand),
         'file' => octoPrintJobFile($job, $state),
         'status' => $state === 'operational' ? 'Ready' : (string)($job['state'] ?? 'Unknown'),
         'progress' => $progress,
@@ -266,6 +339,7 @@ function normalizeHomeAssistantPrinter(
         }
     }
     $model = printerDisplayModel($printer, $data['manufacturer'] ?? null, $data['model'] ?? null);
+    $brand = printerBrand($printer, $data['manufacturer'] ?? null, $data['model'] ?? null);
 
     $file = '';
     if (in_array($rawStatus, ['running', 'pause', 'paused', 'prepare', 'init', 'slicing'], true)) {
@@ -307,6 +381,8 @@ function normalizeHomeAssistantPrinter(
     return [
         'name' => $name,
         'model' => $model,
+        'brand' => $brand,
+        'brandIcon' => printerBrandIcon($brand),
         'file' => $file,
         'status' => $status,
         'progress' => $progress,

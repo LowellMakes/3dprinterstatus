@@ -301,6 +301,13 @@ tr:nth-child(even) td {
     font-size: 1.3rem;
 }
 
+.printer-brand-icon {
+    width: 31px;
+    height: 31px;
+    display: block;
+    object-fit: contain;
+}
+
 .status-badge {
     width: fit-content;
     display: inline-flex;

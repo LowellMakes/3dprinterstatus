@@ -176,8 +176,19 @@
                     const row = $('<tr>').addClass('printer-row row-' + status);
 
                     const printerCell = $('<td>').attr('data-label', 'Printer').addClass('printer-cell');
+                    const brandIcon = ['bambu-lab', 'prusa-research', 'creality'].includes(printer.brandIcon)
+                        ? printer.brandIcon
+                        : 'generic';
                     printerCell.append($('<span>').addClass('printer-mark').attr('aria-hidden', 'true')
-                        .append(createIcon('printer-3d')));
+                        .append($('<img>')
+                            .addClass('printer-brand-icon')
+                            .attr('src', 'assets/brand-icons/' + brandIcon + '.svg')
+                            .attr('alt', '')
+                            .on('error', function () {
+                                if (brandIcon !== 'generic') {
+                                    $(this).off('error').attr('src', 'assets/brand-icons/generic.svg');
+                                }
+                            })));
                     printerCell.append($('<strong>').attr('title', identity).text(identity));
                     row.append(printerCell);
 

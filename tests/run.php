@@ -296,6 +296,38 @@ test('manual model override wins over provider and cached metadata', function ()
     assertSameValue('Workshop Custom', offlinePrinter($printer)['model']);
 });
 
+test('printer brands are normalized from manufacturer and OctoPrint model metadata', function (): void {
+    foreach ([
+        [['model' => 'Cached'], 'Bambu Lab', 'A1', 'Bambu Lab', 'bambu-lab'],
+        [[], 'Bambu Lab', 'Ender 5 Plus', 'Bambu Lab', 'bambu-lab'],
+        [[], null, 'Prusa i3 mk2.5s', 'Prusa Research', 'prusa-research'],
+        [[], null, 'Original Prusa MK3S', 'Prusa Research', 'prusa-research'],
+        [[], null, 'Ender 5 Plus', 'Creality', 'creality'],
+        [[], null, 'Creality K1 Max', 'Creality', 'creality'],
+        [['brand' => 'Prusa Research'], null, 'Ender 5 Plus', 'Creality', 'creality'],
+        [['provider' => 'homeassistant', 'entityPrefix' => 'bambu_a1'], null, null, 'Bambu Lab', 'bambu-lab'],
+    ] as [$printer, $manufacturer, $model, $brand, $icon]) {
+        assertSameValue($brand, printerBrand($printer, $manufacturer, $model));
+        assertSameValue($icon, printerBrandIcon($brand));
+    }
+    assertSameValue('generic', printerBrandIcon('../admin/auth'));
+});
+
+test('cached and manually overridden printer brands remain available offline', function (): void {
+    assertSameValue('Prusa Research', printerBrand(['brand' => 'Prusa Research']));
+    assertSameValue('Bambu Lab', printerBrand([
+        'brand' => 'Creality',
+        'brandOverride' => 'Bambu Lab',
+    ]));
+
+    $offline = offlinePrinter([
+        'printerName' => 'Offline printer',
+        'brand' => 'Prusa Research',
+    ]);
+    assertSameValue('Prusa Research', $offline['brand']);
+    assertSameValue('prusa-research', $offline['brandIcon']);
+});
+
 test('OctoPrint profile metadata falls back to the cached model', function (): void {
     $printer = ['model' => 'Cached Prusa'];
 
@@ -348,6 +380,8 @@ test('OctoPrint response is normalized without changing legacy behavior', functi
 
     assertSameValue('Prusa MK3S', $result['name']);
     assertSameValue('Prusa MK3S', $result['model']);
+    assertSameValue('Prusa Research', $result['brand']);
+    assertSameValue('prusa-research', $result['brandIcon']);
     assertSameValue('bracket-v2.gcode', $result['file']);
     assertSameValue('Printing', $result['status']);
     assertSameValue(50, $result['progress']);
@@ -436,6 +470,8 @@ test('running Bambu state is normalized for the existing status page', function 
 
     assertSameValue('Workshop A1', $result['name']);
     assertSameValue('Bambu Lab A1', $result['model']);
+    assertSameValue('Bambu Lab', $result['brand']);
+    assertSameValue('bambu-lab', $result['brandIcon']);
     assertSameValue('dragon-v4.gcode.3mf', $result['file']);
     assertSameValue('Printing', $result['status']);
     assertSameValue(42, $result['progress']);
@@ -627,6 +663,30 @@ test('admin connection test submits complete provider fields', function (): void
     assertContainsText("entityPrefix: $('input[name=\"entityPrefix\"]').val()", $adminEdit);
     assertContainsText('name="modelOverride"', $adminEdit);
     assertContainsText("\$_POST['modelOverride']", $adminEdit);
+    assertContainsText('name="brandOverride"', $adminEdit);
+    assertContainsText("\$_POST['brandOverride']", $adminEdit);
+});
+
+test('dashboard uses locally cached brand icons beside printer names', function (): void {
+    $index = (string)file_get_contents(__DIR__ . '/../index.php');
+    $styles = (string)file_get_contents(__DIR__ . '/../styles.css');
+
+    assertContainsText("'assets/brand-icons/' + brandIcon + '.svg'", $index);
+    assertContainsText("['bambu-lab', 'prusa-research', 'creality'].includes(printer.brandIcon)", $index);
+    assertContainsText(".addClass('printer-brand-icon')", $index);
+    assertNotContainsText(".append(createIcon('printer-3d'))", $index);
+    assertContainsText('.printer-brand-icon', $styles);
+
+    foreach (['bambu-lab', 'prusa-research', 'creality', 'generic'] as $slug) {
+        $path = __DIR__ . '/../assets/brand-icons/' . $slug . '.svg';
+        if (!is_file($path)) {
+            throw new RuntimeException("missing cached brand icon {$slug}");
+        }
+        $svg = (string)file_get_contents($path);
+        assertContainsText('<svg', $svg);
+        assertNotContainsText('<script', strtolower($svg));
+        assertNotContainsText('onload=', strtolower($svg));
+    }
 });
 
 test('dashboard restores reference iconography glow and print file metadata', function (): void {

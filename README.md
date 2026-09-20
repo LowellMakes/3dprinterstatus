@@ -8,7 +8,7 @@ The page refreshes every 30 seconds. The PHP backend caches normalized printer d
 
 ### OctoPrint
 
-OctoPrint printers are queried directly through the `/api/job` and `/api/settings` endpoints. Existing `printers.json` entries without a `provider` field remain compatible and are treated as OctoPrint printers.
+OctoPrint printers are queried directly through the `/api/job`, `/api/settings`, and `/api/printerprofiles` endpoints. Existing `printers.json` entries without a `provider` field remain compatible and are treated as OctoPrint printers.
 
 ### Home Assistant / Bambu Lab
 
@@ -156,7 +156,17 @@ For Bambu Lab:
 4. Select **Test Connection**.
 5. Save the printer.
 
-The admin page stores the discovered name and model as offline fallbacks. Normal page refreshes pull current values from Home Assistant.
+The admin page stores the discovered name, model, and brand as offline fallbacks. Normal page refreshes pull current values from Home Assistant.
+
+## Printer brand icons
+
+The dashboard derives a normalized brand from provider metadata and common model names. Bambu Lab, Prusa Research, and Creality use their respective brand marks beside printer names; unknown brands use a local generic fallback. A brand override is available in the printer editor when automatic detection is insufficient. Full model text remains visible independently of the selected brand icon.
+
+Brand SVGs are cached under `assets/brand-icons/`; visitors never contact a third-party icon service. To refresh the vetted files from Iconify, run:
+
+    scripts/cache-brand-icons.sh
+
+The refresh script permits HTTPS only, limits each response to 128 KiB, parses the XML, and rejects scripts, event handlers, external JavaScript, entities, and foreign objects. Source collections and licenses are recorded in `assets/brand-icons/README.md`.
 
 ## Printer configuration format
 
@@ -165,6 +175,7 @@ OctoPrint entry:
     {
         "provider": "octoprint",
         "printerName": "Prusa MK3S",
+        "brand": "Prusa Research",
         "url": "http://octoprint.local",
         "apiKey": "replace-with-api-key",
         "active": true
@@ -175,6 +186,7 @@ Home Assistant / Bambu entry:
     {
         "provider": "homeassistant",
         "printerName": "Bambu A1",
+        "brand": "Bambu Lab",
         "model": "A1",
         "entityPrefix": "bambu_a1",
         "active": true

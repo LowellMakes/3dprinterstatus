@@ -25,6 +25,8 @@ $printer = $id !== null ? $printers[$id] : [
     'printerName' => '',
     'model' => '',
     'modelOverride' => '',
+    'brand' => '',
+    'brandOverride' => '',
     'url' => '',
     'apiKey' => '',
     'entityPrefix' => '',
@@ -40,6 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'printerName' => (string)($printer['printerName'] ?? ''),
         'model' => (string)($printer['model'] ?? ''),
         'modelOverride' => trim((string)($_POST['modelOverride'] ?? '')),
+        'brand' => (string)($printer['brand'] ?? ''),
+        'brandOverride' => trim((string)($_POST['brandOverride'] ?? '')),
         'active' => isset($_POST['active']),
     ];
 
@@ -66,6 +70,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $data['printerName'] = $live['name'];
             if ($data['modelOverride'] === '') {
                 $data['model'] = $live['model'];
+            }
+            if ($data['brandOverride'] === '') {
+                $data['brand'] = $live['brand'];
             }
         }
 
@@ -137,6 +144,19 @@ $provider = printerProvider($printer);
                     Leave blank to use provider metadata.
                     <?php if (!empty($printer['model'])): ?>
                         Currently detected as <?= htmlspecialchars((string)$printer['model']) ?>.
+                    <?php endif; ?>
+                </span>
+            </div>
+
+            <div class="field-group">
+                <label for="brand-override">Brand override <span class="optional">Optional</span></label>
+                <input id="brand-override" type="text" name="brandOverride"
+                       value="<?= htmlspecialchars((string)($printer['brandOverride'] ?? '')) ?>"
+                       placeholder="Auto-detect from provider or model">
+                <span class="field-help">
+                    Controls the locally cached logo shown beside the printer.
+                    <?php if (!empty($printer['brand'])): ?>
+                        Currently detected as <?= htmlspecialchars((string)$printer['brand']) ?>.
                     <?php endif; ?>
                 </span>
             </div>

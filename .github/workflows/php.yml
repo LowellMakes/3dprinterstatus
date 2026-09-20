@@ -27,8 +27,8 @@ jobs:
         run: php tests/run.php
       - name: Check helper syntax
         run: |
-          bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh tests/smoke.sh tests/deployment.sh tests/naming.sh tests/naming-test.sh
-          python3 -m py_compile tests/fake_github_api.py
+          bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh scripts/cache-brand-icons.sh tests/brand-icons-test.sh tests/smoke.sh tests/deployment.sh tests/naming.sh tests/naming-test.sh
+          python3 -m py_compile scripts/validate-brand-icon.py tests/fake_github_api.py
           node --check theme.js
           node --check tests/theme-test.js
           node --check tests/dashboard-script-test.js
@@ -38,6 +38,8 @@ jobs:
           node tests/dashboard-script-test.js
       - name: Enforce live environment naming
         run: tests/naming-test.sh
+      - name: Validate cached brand icons
+        run: tests/brand-icons-test.sh
       - name: Run deployment tests
         run: tests/deployment.sh
       - name: Run HTTP smoke test
