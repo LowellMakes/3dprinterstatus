@@ -539,13 +539,31 @@ test('printer model is rendered inline without special name or model typography'
     assertNotContainsText('printer-identity', $index . $styles);
 });
 
-test('dashboard provides persistent light and dark theme controls', function (): void {
-    $index = (string)file_get_contents(__DIR__ . '/../index.php');
+test('theme controls live in admin settings and persist across public and admin pages', function (): void {
+    $dashboard = (string)file_get_contents(__DIR__ . '/../index.php');
+    $admin = (string)file_get_contents(__DIR__ . '/../admin/index.php');
+    $adminEdit = (string)file_get_contents(__DIR__ . '/../admin/edit.php');
+    $adminAuth = (string)file_get_contents(__DIR__ . '/../admin/auth.php');
 
-    assertContainsText('data-theme-option="light"', $index);
-    assertContainsText('data-theme-option="dark"', $index);
-    assertContainsText("localStorage.getItem('3dprinterstatus-theme')", $index);
-    assertContainsText("matchMedia('(prefers-color-scheme: dark)')", $index);
+    assertNotContainsText('data-theme-option=', $dashboard);
+    assertContainsText('data-theme-option="light"', $admin);
+    assertContainsText('data-theme-option="dark"', $admin);
+    assertContainsText('src="theme.js"', $dashboard);
+    assertContainsText('src="../theme.js"', $admin);
+    assertContainsText('src="../theme.js"', $adminEdit);
+    assertContainsText('src="../theme.js"', $adminAuth);
+    $sharedTheme = (string)file_get_contents(__DIR__ . '/../theme.js');
+    assertContainsText("const storageKey = '3dprinterstatus-theme'", $sharedTheme);
+    assertContainsText('localStorage.getItem(storageKey)', $sharedTheme);
+    assertContainsText("matchMedia('(prefers-color-scheme: dark)')", $sharedTheme);
+});
+
+test('admin connection test submits complete provider fields', function (): void {
+    $adminEdit = (string)file_get_contents(__DIR__ . '/../admin/edit.php');
+
+    assertContainsText("url: $('input[name=\"url\"]').val()", $adminEdit);
+    assertContainsText("apiKey: $('input[name=\"apiKey\"]').val()", $adminEdit);
+    assertContainsText("entityPrefix: $('input[name=\"entityPrefix\"]').val()", $adminEdit);
 });
 
 test('dashboard renders live status summary and progress bars', function (): void {
@@ -558,19 +576,30 @@ test('dashboard renders live status summary and progress bars', function (): voi
     assertContainsText('updateSummary(data)', $index);
 });
 
-test('dashboard omits generated branding and agent controls', function (): void {
+test('dashboard omits titles controls footer and generated branding', function (): void {
     $index = strtolower((string)file_get_contents(__DIR__ . '/../index.php'));
 
-    foreach (['>3dprinterstatus<', 'monitor. print. build. together.', 'agent: hermes'] as $forbidden) {
+    foreach ([
+        '>3dprinterstatus<',
+        'monitor. print. build. together.',
+        'agent: hermes',
+        'class="floor-status"',
+        '>factory floor<',
+        '>live monitoring<',
+        'printers shown',
+        'auto-refresh',
+        'dashboard-footer',
+    ] as $forbidden) {
         assertNotContainsText($forbidden, $index);
     }
 });
 
 test('dashboard handles unavailable theme storage and empty printer fleets', function (): void {
     $index = (string)file_get_contents(__DIR__ . '/../index.php');
+    $sharedTheme = (string)file_get_contents(__DIR__ . '/../theme.js');
 
-    assertContainsText('try {', $index);
-    assertContainsText("localStorage.setItem(storageKey, theme)", $index);
+    assertContainsText('try {', $sharedTheme);
+    assertContainsText("localStorage.setItem(storageKey, theme)", $sharedTheme);
     assertContainsText('id="empty-state"', $index);
     assertContainsText("$('#empty-state').prop('hidden', hasPrinters)", $index);
 });

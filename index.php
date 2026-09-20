@@ -5,40 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="light dark">
     <title>3D Printer Status</title>
+    <script src="theme.js"></script>
     <link rel="stylesheet" type="text/css" href="styles.css">
-    <script>
-        (function () {
-            let savedTheme = null;
-            try {
-                savedTheme = localStorage.getItem('3dprinterstatus-theme');
-            } catch (error) {
-                // Storage may be disabled; system preference remains a safe fallback.
-            }
-            const preferredTheme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-            document.documentElement.dataset.theme = savedTheme === 'dark' || savedTheme === 'light'
-                ? savedTheme
-                : preferredTheme;
-        }());
-    </script>
 </head>
 <body>
     <main class="dashboard">
-        <header class="dashboard-toolbar" aria-label="Dashboard controls">
-            <div class="floor-status" aria-label="Live factory-floor monitoring">
-                <span>Factory floor</span>
-                <strong>Live monitoring</strong>
-                <i aria-hidden="true"></i>
-            </div>
-            <div class="theme-switcher" role="group" aria-label="Color theme">
-                <button type="button" data-theme-option="light" aria-label="Use light mode">
-                    <span aria-hidden="true">☀</span> Light
-                </button>
-                <button type="button" data-theme-option="dark" aria-label="Use dark mode">
-                    <span aria-hidden="true">☾</span> Dark
-                </button>
-            </div>
-        </header>
-
         <section class="overview-panel" aria-label="Printer overview">
             <div class="summary-grid">
                 <article class="summary-card summary-total">
@@ -105,40 +76,12 @@
             </div>
         </section>
 
-        <footer class="dashboard-footer">
-            <p><strong id="printer-count">0</strong> printers shown</p>
-            <p class="refresh-status"><span aria-hidden="true">↻</span> Auto-refresh: 30s <i aria-hidden="true"></i></p>
-        </footer>
     </main>
 
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script>
         (function () {
-            const storageKey = '3dprinterstatus-theme';
             const refreshMilliseconds = 30000;
-
-            function setTheme(theme, persist) {
-                document.documentElement.dataset.theme = theme;
-                document.querySelectorAll('[data-theme-option]').forEach(function (button) {
-                    const selected = button.dataset.themeOption === theme;
-                    button.classList.toggle('is-active', selected);
-                    button.setAttribute('aria-pressed', String(selected));
-                });
-                if (persist) {
-                    try {
-                        localStorage.setItem(storageKey, theme);
-                    } catch (error) {
-                        // The selected theme still applies for this page load.
-                    }
-                }
-            }
-
-            document.querySelectorAll('[data-theme-option]').forEach(function (button) {
-                button.addEventListener('click', function () {
-                    setTheme(button.dataset.themeOption, true);
-                });
-            });
-            setTheme(document.documentElement.dataset.theme, false);
 
             function normalizedStatus(printer) {
                 const status = String(printer.status || '').toLowerCase();
@@ -159,8 +102,6 @@
                 Object.keys(counts).forEach(function (status) {
                     $('#summary-' + status).text(counts[status]);
                 });
-                $('#printer-count').text(data.length);
-
                 const hasProblem = counts.failed > 0 || counts.offline > 0;
                 $('#system-health')
                     .toggleClass('has-problem', hasProblem)
