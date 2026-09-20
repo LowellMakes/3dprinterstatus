@@ -31,6 +31,13 @@ function assertContainsText(string $needle, string $haystack): void
     }
 }
 
+function assertNotContainsText(string $needle, string $haystack): void
+{
+    if (str_contains($haystack, $needle)) {
+        throw new RuntimeException("expected not to find {$needle}");
+    }
+}
+
 function assertThrowsRuntime(callable $callback, string $message): void
 {
     try {
@@ -470,6 +477,16 @@ test('JSON writes fail loudly when the target cannot be written', function (): v
     }
 
     throw new RuntimeException('failed JSON write was reported as successful');
+});
+
+test('printer model is rendered inline without special name or model typography', function (): void {
+    $index = (string)file_get_contents(__DIR__ . '/../index.php');
+    $styles = (string)file_get_contents(__DIR__ . '/../styles.css');
+
+    assertContainsText("printer.name + ' (' + printer.model + ')'", $index);
+    assertNotContainsText('printer-name', $index . $styles);
+    assertNotContainsText('printer-model', $index . $styles);
+    assertNotContainsText('printer-identity', $index . $styles);
 });
 
 $failures = 0;

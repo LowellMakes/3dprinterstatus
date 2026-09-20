@@ -52,13 +52,11 @@
                     // Build rows with text nodes so names/models from APIs cannot inject HTML
                     data.forEach(function(printer) {
                         const row = $('<tr>').addClass(printer.colorClass);
-                        const identity = $('<td>').addClass('printer-identity');
-                        identity.append($('<div>').addClass('printer-name').text(printer.name));
-                        if (printer.model) {
-                            identity.append($('<div>').addClass('printer-model').text(printer.model));
-                        }
+                        const identity = printer.model
+                            ? printer.name + ' (' + printer.model + ')'
+                            : printer.name;
 
-                        row.append(identity);
+                        row.append($('<td>').text(identity));
                         row.append($('<td>').attr('align', 'center').text(printer.status));
                         row.append($('<td>').attr('align', 'center').text(
                             printer.progress !== '' && printer.status !== 'Offline' ? printer.progress + '%' : ''
