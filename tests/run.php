@@ -38,6 +38,56 @@ function assertNotContainsText(string $needle, string $haystack): void
     }
 }
 
+function cssHexRgb(string $hex): array
+{
+    if (!preg_match('/^#[0-9a-f]{6}$/i', $hex)) {
+        throw new RuntimeException("invalid CSS color {$hex}");
+    }
+
+    return [
+        hexdec(substr($hex, 1, 2)) / 255,
+        hexdec(substr($hex, 3, 2)) / 255,
+        hexdec(substr($hex, 5, 2)) / 255,
+    ];
+}
+
+function cssLinearComponent(float $component): float
+{
+    return $component <= 0.04045
+        ? $component / 12.92
+        : (($component + 0.055) / 1.055) ** 2.4;
+}
+
+function cssRelativeLuminance(array $rgb): float
+{
+    return 0.2126 * cssLinearComponent($rgb[0])
+        + 0.7152 * cssLinearComponent($rgb[1])
+        + 0.0722 * cssLinearComponent($rgb[2]);
+}
+
+function cssMix(string $foreground, string $background, float $foregroundFraction): array
+{
+    $foregroundRgb = cssHexRgb($foreground);
+    $backgroundRgb = cssHexRgb($background);
+
+    return array_map(
+        static fn (float $foregroundComponent, float $backgroundComponent): float =>
+            $foregroundFraction * $foregroundComponent + (1 - $foregroundFraction) * $backgroundComponent,
+        $foregroundRgb,
+        $backgroundRgb
+    );
+}
+
+function cssContrastRatio(string $foreground, array $background): float
+{
+    $foregroundLuminance = cssRelativeLuminance(cssHexRgb($foreground));
+    $backgroundLuminance = cssRelativeLuminance($background);
+    $lighter = max($foregroundLuminance, $backgroundLuminance);
+    $darker = min($foregroundLuminance, $backgroundLuminance);
+
+    return ($lighter + 0.05) / ($darker + 0.05);
+}
+
 function assertThrowsRuntime(callable $callback, string $message): void
 {
     try {
@@ -487,6 +537,71 @@ test('printer model is rendered inline without special name or model typography'
     assertNotContainsText('printer-name', $index . $styles);
     assertNotContainsText('printer-model', $index . $styles);
     assertNotContainsText('printer-identity', $index . $styles);
+});
+
+test('dashboard provides persistent light and dark theme controls', function (): void {
+    $index = (string)file_get_contents(__DIR__ . '/../index.php');
+
+    assertContainsText('data-theme-option="light"', $index);
+    assertContainsText('data-theme-option="dark"', $index);
+    assertContainsText("localStorage.getItem('3dprinterstatus-theme')", $index);
+    assertContainsText("matchMedia('(prefers-color-scheme: dark)')", $index);
+});
+
+test('dashboard renders live status summary and progress bars', function (): void {
+    $index = (string)file_get_contents(__DIR__ . '/../index.php');
+
+    foreach (['summary-total', 'summary-printing', 'summary-ready', 'summary-failed', 'summary-offline'] as $id) {
+        assertContainsText('id="' . $id . '"', $index);
+    }
+    assertContainsText('class="progress-track"', $index);
+    assertContainsText('updateSummary(data)', $index);
+});
+
+test('dashboard omits generated branding and agent controls', function (): void {
+    $index = strtolower((string)file_get_contents(__DIR__ . '/../index.php'));
+
+    foreach (['>3dprinterstatus<', 'monitor. print. build. together.', 'agent: hermes'] as $forbidden) {
+        assertNotContainsText($forbidden, $index);
+    }
+});
+
+test('dashboard handles unavailable theme storage and empty printer fleets', function (): void {
+    $index = (string)file_get_contents(__DIR__ . '/../index.php');
+
+    assertContainsText('try {', $index);
+    assertContainsText("localStorage.setItem(storageKey, theme)", $index);
+    assertContainsText('id="empty-state"', $index);
+    assertContainsText("$('#empty-state').prop('hidden', hasPrinters)", $index);
+});
+
+test('light theme status badges meet WCAG AA on normal and alternate rows', function (): void {
+    $styles = (string)file_get_contents(__DIR__ . '/../styles.css');
+    $colors = [];
+    foreach (['green', 'yellow', 'red', 'offline'] as $name) {
+        if (!preg_match('/--' . $name . ':\s*(#[0-9a-f]{6});/i', $styles, $match)) {
+            throw new RuntimeException("missing light-theme --{$name} color");
+        }
+        $colors[$name] = strtolower($match[1]);
+    }
+
+    $badges = [
+        'ready' => [$colors['green'], 0.10],
+        'printing' => [$colors['yellow'], 0.10],
+        'failed' => [$colors['red'], 0.10],
+        'offline' => [$colors['offline'], 0.09],
+    ];
+
+    foreach (['#fafdff', '#f0f7fd'] as $rowBackground) {
+        foreach ($badges as $name => [$foreground, $tint]) {
+            $ratio = cssContrastRatio($foreground, cssMix($foreground, $rowBackground, $tint));
+            if ($ratio < 4.5) {
+                throw new RuntimeException(
+                    sprintf('%s badge contrast is %.2f:1 on %s', $name, $ratio, $rowBackground)
+                );
+            }
+        }
+    }
 });
 
 $failures = 0;
