@@ -1,0 +1,17 @@
+[Unit]
+Description=Deploy successful 3dprinterstatus main commits atomically to staging
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0027
+EnvironmentFile=-/etc/3dprinterstatus/deploy-staging.env
+ExecStart=/usr/local/bin/deploy-staging.sh
+Restart=always
+RestartSec=30s
+
+[Install]
+WantedBy=multi-user.target

@@ -1,23 +1,37 @@
-name: PHP Composer
+name: PHP
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
 
 permissions:
   contents: read
 
 jobs:
-  build:
-
+  test:
     runs-on: ubuntu-latest
-
+    strategy:
+      matrix:
+        php-version: ["8.1", "8.4"]
     steps:
-    - uses: actions/checkout@v3
-    - name: Lint index.php
-      run: php -l index.php 
-    - name: Lint get_printer_data.php
-      run: php -l get_printer_data.php
-      
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          extensions: curl, tokenizer
+      - name: Lint all PHP files
+        run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: Run tests
+        run: php tests/run.php
+      - name: Check helper syntax
+        run: |
+          bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh tests/smoke.sh tests/deployment.sh tests/naming.sh tests/naming-test.sh
+          python3 -m py_compile tests/fake_github_api.py
+      - name: Enforce live environment naming
+        run: tests/naming-test.sh
+      - name: Run deployment tests
+        run: tests/deployment.sh
+      - name: Run HTTP smoke test
+        run: tests/smoke.sh

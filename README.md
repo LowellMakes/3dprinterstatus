@@ -23,38 +23,119 @@ The following Bambu entities are used, where `<prefix>` is configured in the adm
 - `sensor.<prefix>_remaining_time`
 - `sensor.<prefix>_start_time`
 
-The display name prefers the Home Assistant device's user-assigned name, then falls back to the Bambu printer-name sensor and the saved admin value. The hardware model is read from the print-status entity's Home Assistant device-registry metadata with `device_attr()`, so model discovery still works when the optional printer-name sensor is missing or blank. The status page displays the model beneath the printer name.
+The display name prefers the Home Assistant device's user-assigned name, then falls back to the Bambu printer-name sensor and the saved admin value. The hardware model is read from the print-status entity's Home Assistant device-registry metadata with `device_attr()`.
 
 ## Requirements
 
-- PHP with the cURL extension
+- PHP 8.1 or newer with the cURL extension
 - Home Assistant with the Bambu Lab integration for Bambu printers
-- Git, curl, and jq for the optional deployment script
+- Git, curl, and jq for automatic staging deployment
 
-## Private configuration
+## Environment configuration
 
-Private files live outside the web repository in its sibling `private` directory:
+Secrets and deployment-specific paths are held in one JSON file outside the checkout. Home Assistant credentials are included directly in this file.
 
-    parent-directory/
-      3dprinterstatus/
-      private/
-        printers.json
-        homeassistant.json
+- Live is the default and loads `/etc/3dprinterstatus/live.json`.
+- A `.staging` file in the checkout root selects `/etc/3dprinterstatus/staging.json`.
+- `.staging` is ignored by Git and preserved by `deploy-staging.sh`.
+- `THREEDPRINTERSTATUS_CONFIG` can explicitly override the selected path, but normal live and staging installations do not need an Nginx or PHP-FPM parameter.
 
-Examples are provided in `config/`.
+The live checkout therefore works without an environment marker or virtual-host customization. The staging checkout only needs:
 
-### Home Assistant credentials
+    touch /var/www/staging/.staging
 
-Create `../private/homeassistant.json`:
+Example configuration:
 
     {
-        "url": "http://homeassistant.local:8123",
-        "token": "replace-with-a-long-lived-access-token"
+        "printers_file": "/var/lib/3dprinterstatus/live/printers.json",
+        "cache_file": "/var/cache/3dprinterstatus/live/printer-data.json",
+        "home_assistant": {
+            "url": "http://homeassistant.local:8123",
+            "token": "replace-with-a-long-lived-access-token"
+        },
+        "admin": {
+            "password_hash": "$2y$12$replace-with-password-hash",
+            "ip_allowlist": [
+                "127.0.0.1",
+                "10.0.0.0/8",
+                "192.168.1."
+            ]
+        }
     }
 
-The values can instead be supplied with `HOME_ASSISTANT_URL` and `HOME_ASSISTANT_TOKEN`. Environment variables override the JSON file.
+Generate a password hash with:
 
-Use a dedicated Home Assistant user and keep the token out of the repository and web root. The token is used only by server-side PHP and is never sent to the browser.
+    php -r 'echo password_hash($argv[1], PASSWORD_DEFAULT), PHP_EOL;' 'your-password'
+
+Use a dedicated Home Assistant user. Configuration files should be owned by `root:www-data` and mode `0640`; they must never be placed in the repository or web root.
+
+## Filesystem layout
+
+Static configuration and secrets:
+
+    /etc/3dprinterstatus/live.json
+    /etc/3dprinterstatus/staging.json
+    /etc/3dprinterstatus/deploy-staging.env   # optional GitHub token
+
+Mutable printer inventories:
+
+    /var/lib/3dprinterstatus/live/printers.json
+    /var/lib/3dprinterstatus/staging/printers.json
+
+Generated caches:
+
+    /var/cache/3dprinterstatus/live/printer-data.json
+    /var/cache/3dprinterstatus/staging/printer-data.json
+
+The PHP process needs read access to the selected config and read/write access to the selected printer inventory and cache directory. It does not need write access to the application checkout.
+
+## Migrating an existing server
+
+After this version has been merged to `main`, run from a current checkout and explicitly identify the authentication file from the currently running site:
+
+    sudo LEGACY_AUTH_FILE=/path/to/current/site/admin/auth.php SOURCE_DIR="$PWD" deploy/install-server.sh
+
+The installer:
+
+1. Reads the existing `/var/www/private/homeassistant.json` without printing its token.
+2. Converts the plaintext password in the existing live `admin/auth.php` to a password hash without writing the plaintext into the new config.
+3. Copies live and staging printer inventories into separate `/var/lib` paths.
+4. Creates separate `/var/cache` paths.
+5. Creates root-owned live and staging config files.
+6. Converts `/var/www/staging` to a stable symlink pointing at a marked staging release.
+7. Installs and starts the locked, atomic staging deployment service.
+
+Existing destination configs and printer inventories are not overwritten. Inspect them after migration:
+
+    sudo jq 'del(.home_assistant.token, .admin.password_hash)' /etc/3dprinterstatus/live.json
+    sudo jq 'del(.home_assistant.token, .admin.password_hash)' /etc/3dprinterstatus/staging.json
+
+## Deployment
+
+### Staging
+
+`.github/workflows/php.yml` runs all PHP syntax checks, the test suite, and shell syntax checks on pushes and pull requests targeting `main`.
+
+`deploy-staging.service` polls for the newest successful `push` workflow on `main` every five minutes. It creates a complete, immutable release under `/var/lib/3dprinterstatus/deploy/releases/staging`, adds the `.staging` marker itself, and atomically switches the `/var/www/staging` symlink. A deployment lock prevents concurrent writers, and the deployer fails closed if the current release is not explicitly marked as staging.
+
+The optional `/etc/3dprinterstatus/deploy-staging.env` may contain a token to avoid unauthenticated GitHub API limits:
+
+    GITHUB_TOKEN=<read-only-token>
+
+The token only needs read access to Actions metadata for this public repository.
+
+Check the service with:
+
+    systemctl status deploy-staging.service
+    journalctl -u deploy-staging.service
+
+### Live
+
+Live deployment is deliberately explicit and is never performed by the staging service:
+
+    sudo deploy-live.sh <commit-or-tag>
+
+`deploy-live.sh` fetches tags and branches, resolves branch names through `origin`, and refuses to run if a `.staging` marker exists. It creates an immutable release under `/var/lib/3dprinterstatus/deploy/releases/live` and atomically switches `/var/www/live`. The existing site remains untouched until its Nginx vhost is intentionally switched to the new live web root. On its first run it preserves any existing non-release live tree as a timestamped sibling backup. A deployment lock prevents concurrent live updates.
 
 ## Adding printers through the admin page
 
@@ -69,13 +150,13 @@ For OctoPrint:
 
 For Bambu Lab:
 
-1. Add the printer to Home Assistant's Bambu Lab integration first, preferably using its local IP address, serial number, and LAN access code.
+1. Add the printer to Home Assistant's Bambu Lab integration, preferably in LAN mode.
 2. Select `Home Assistant / Bambu Lab` in the status-page admin form.
 3. Enter the entity prefix. For `sensor.bambu_a1_print_status`, the prefix is `bambu_a1`.
-4. Select **Test Connection**. The result includes the printer name and model returned by Home Assistant.
+4. Select **Test Connection**.
 5. Save the printer.
 
-The admin page stores the discovered name and model as offline fallbacks. Normal page refreshes pull the current name and model from Home Assistant.
+The admin page stores the discovered name and model as offline fallbacks. Normal page refreshes pull current values from Home Assistant.
 
 ## Printer configuration format
 
@@ -105,6 +186,8 @@ Run the dependency-free PHP test suite:
 
     php tests/run.php
 
-Run PHP syntax checks over the application:
+Run PHP syntax checks over the application and deployment scripts:
 
     find . -name '*.php' -print0 | xargs -0 -n1 php -l
+    bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh
+    tests/naming-test.sh

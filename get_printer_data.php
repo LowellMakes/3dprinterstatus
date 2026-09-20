@@ -3,10 +3,11 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/lib/printer_providers.php';
+require_once __DIR__ . '/lib/app_config.php';
 
-$printersFile = __DIR__ . '/../private/printers.json';
-$homeAssistantFile = __DIR__ . '/../private/homeassistant.json';
-$cacheFile = '/tmp/printer_data_cache.json';
+$applicationConfig = applicationConfig();
+$printersFile = $applicationConfig['printers_file'];
+$cacheFile = $applicationConfig['cache_file'];
 
 function loadPrinters(string $path): array
 {
@@ -46,7 +47,7 @@ function getCachedData(string $cacheFile, int $maxAge = 60): string|false
 $cachedData = getCachedData($cacheFile);
 if ($cachedData === false) {
     $printers = loadPrinters($printersFile);
-    $homeAssistantConfig = loadHomeAssistantConfig($homeAssistantFile);
+    $homeAssistantConfig = $applicationConfig['home_assistant'];
     $cachedData = json_encode(
         fetchPrinterData($printers, $homeAssistantConfig),
         JSON_UNESCAPED_SLASHES
