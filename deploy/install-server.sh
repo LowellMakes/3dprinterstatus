@@ -44,7 +44,8 @@ if [[ ! -f "${config_dir}/live.json" || ! -f "${config_dir}/staging.json" ]]; th
 fi
 
 install -d -o root -g "$web_group" -m 0750 "$config_dir"
-install -d -o root -g "$web_group" -m 2770 "$state_dir" "$state_dir/live" "$state_dir/staging"
+install -d -o root -g "$web_group" -m 0750 "$state_dir"
+install -d -o root -g "$web_group" -m 2770 "$state_dir/live" "$state_dir/staging"
 install -d -o www-data -g "$web_group" -m 2770 "$cache_dir" "$cache_dir/live" "$cache_dir/staging"
 install -d -o root -g "$web_group" -m 0750 "$deployment_dir" "$deployment_dir/releases" "$deployment_dir/releases/staging"
 
