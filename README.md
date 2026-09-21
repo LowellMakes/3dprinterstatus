@@ -167,7 +167,7 @@ Live deployment is deliberately explicit and is never performed by the staging w
 
 The command requires `/etc/3dprinterstatus/live.json` and the absolute `printers_file` referenced by that config to exist before deployment. It validates the JSON inventory, canonical origin, checkout ownership, permissions, clean worktree, absence of `.staging`, PHP syntax, PHP tests, and brand icons. Tests run as `www-data`. It writes `live-revision.txt`, clears the configured cache file, reloads PHP-FPM, and rolls back to the previous commit if validation or activation fails. A deployment lock prevents concurrent runs.
 
-The deployer does not modify Nginx. Keep the existing production vhost unchanged while testing `/var/www/live`; switch its document root only after the checkout and external live configuration have been verified. Before exposing the direct checkout, configure Nginx to deny dotfiles—especially `/.git`, `/.staging`, and environment files—while allowing `/.well-known` if required for ACME.
+The deployer does not modify Nginx. Keep the existing live vhost unchanged while testing `/var/www/live`; switch its document root only after the checkout and external live configuration have been verified. Before exposing the direct checkout, configure Nginx to deny dotfiles—especially `/.git`, `/.staging`, and environment files—while allowing `/.well-known` if required for ACME.
 
 Install the reviewed deployer before its first use:
 
