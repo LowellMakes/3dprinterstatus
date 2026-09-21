@@ -15,7 +15,7 @@ readonly legacy_private_dir="${LEGACY_PRIVATE_DIR:-/var/www/private}"
 readonly config_dir="${CONFIG_DIR:-/etc/3dprinterstatus}"
 readonly state_dir="${STATE_DIR:-/var/lib/3dprinterstatus}"
 readonly cache_dir="${CACHE_DIR:-/var/cache/3dprinterstatus}"
-readonly deployment_dir="${DEPLOYMENT_DIR:-/var/lib/3dprinterstatus/deploy}"
+
 
 temporary_files=()
 cleanup() {
@@ -26,7 +26,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM HUP
 
-for command_name in cp curl flock git install jq php systemctl; do
+for command_name in cp curl flock git install jq php; do
     command -v "$command_name" >/dev/null 2>&1 || {
         printf 'Missing dependency: %s\n' "$command_name" >&2
         exit 1
@@ -47,7 +47,7 @@ install -d -o root -g "$web_group" -m 0750 "$config_dir"
 install -d -o root -g "$web_group" -m 0750 "$state_dir"
 install -d -o root -g "$web_group" -m 2770 "$state_dir/live" "$state_dir/staging"
 install -d -o www-data -g "$web_group" -m 2770 "$cache_dir" "$cache_dir/live" "$cache_dir/staging"
-install -d -o root -g "$web_group" -m 0750 "$deployment_dir" "$deployment_dir/releases" "$deployment_dir/releases/staging"
+
 
 migrate_printers() {
     local environment_name=$1
@@ -86,30 +86,23 @@ write_config() {
 write_config live
 write_config staging
 
+# A legacy host needs the isolated config above for the migration health check,
+# but its service and deployer must remain untouched until that migration runs.
+if [[ ! -d "$staging_root" || -L "$staging_root" || ! -d "$staging_root/.git" || -L "$staging_root/.git" ]]; then
+    printf 'Prepared isolated configuration, but staging is not a direct Git checkout at %s. Run the documented migration; installation is incomplete.\n' \
+        "$staging_root" >&2
+    exit 1
+fi
+
 install -o root -g root -m 0755 "$source_dir/deploy-staging.sh" /usr/local/bin/deploy-staging.sh
 install -o root -g root -m 0755 "$source_dir/deploy-live.sh" /usr/local/bin/deploy-live.sh
-install -o root -g root -m 0644 "$source_dir/deploy/deploy-staging.service" /etc/systemd/system/deploy-staging.service
+install -o root -g root -m 0755 "$source_dir/deploy/migrate-staging-to-direct-checkout.sh" \
+    /usr/local/bin/migrate-3dprinterstatus-staging-checkout.sh
 
-if [[ ! -L "$staging_root" ]]; then
-    bootstrap_release="${deployment_dir}/releases/staging/bootstrap-$(date -u +%Y%m%dT%H%M%SZ)-$$"
-    if [[ -d "$staging_root" ]]; then
-        install -o root -g "$web_group" -m 0640 /dev/null "${staging_root}/.staging"
-        mv "$staging_root" "$bootstrap_release"
-    else
-        install -d -o root -g "$web_group" -m 0750 "$bootstrap_release"
-        cp -a "$source_dir/." "$bootstrap_release/"
-        install -o root -g "$web_group" -m 0640 /dev/null "${bootstrap_release}/.staging"
-    fi
-    ln -s "$bootstrap_release" "$staging_root"
-else
-    staging_target=$(readlink -f "$staging_root")
-    install -o root -g "$web_group" -m 0640 /dev/null "${staging_target}/.staging"
-fi
+install -o root -g root -m 0600 /dev/null "$staging_root/.staging"
 
 rm -f /tmp/printer_data_cache.json /tmp/staging_printer_data_cache.json /tmp/_staging_printer_data_cache.json
 
-systemctl daemon-reload
-systemctl enable --now deploy-staging.service
-
-printf 'Installed isolated configuration, state, atomic releases, and staging deployment service.\n'
+printf 'Installed isolated configuration, state, and explicit direct-checkout deployment tools.\n'
+printf 'Staging deployment: deploy-staging.sh <reviewed-40-character-commit>\n'
 printf 'Live deployment remains explicit: deploy-live.sh <commit-or-tag>\n'

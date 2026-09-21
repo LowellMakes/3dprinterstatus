@@ -47,24 +47,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
     <title>Printer Admin Login</title>
     <link rel="stylesheet" href="admin.css">
+    <script src="../theme.js"></script>
 </head>
 <body>
-<div class="card">
-    <form method="post">
-        <h2>Admin Login</h2>
-        <?php if ($error !== ''): ?>
-            <div class="error"><?= htmlspecialchars($error) ?></div>
-        <?php endif; ?>
-        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars((string)$_SESSION['login_csrf_token']) ?>">
-        <input type="password" name="password" placeholder="Password" required autocomplete="current-password">
-        <button class="button" type="submit">Login</button>
-    </form>
-</div>
+<main class="login-shell">
+    <div class="card login-card">
+        <form method="post" class="login-form">
+            <p class="eyebrow">Administration</p>
+            <h1>Sign in</h1>
+            <p class="subtitle">Manage printer connections and dashboard settings.</p>
+            <?php if ($error !== ''): ?>
+                <div class="error" role="alert"><?= htmlspecialchars($error) ?></div>
+            <?php endif; ?>
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars((string)$_SESSION['login_csrf_token']) ?>">
+            <label for="password">Password</label>
+            <input id="password" type="password" name="password" placeholder="Enter password" required autocomplete="current-password">
+            <button class="button" type="submit">Login</button>
+        </form>
+    </div>
+</main>
 </body>
 </html>

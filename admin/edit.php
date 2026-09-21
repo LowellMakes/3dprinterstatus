@@ -24,6 +24,9 @@ $printer = $id !== null ? $printers[$id] : [
     'provider' => 'octoprint',
     'printerName' => '',
     'model' => '',
+    'modelOverride' => '',
+    'brand' => '',
+    'brandOverride' => '',
     'url' => '',
     'apiKey' => '',
     'entityPrefix' => '',
@@ -38,6 +41,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         'provider' => $provider,
         'printerName' => (string)($printer['printerName'] ?? ''),
         'model' => (string)($printer['model'] ?? ''),
+        'modelOverride' => trim((string)($_POST['modelOverride'] ?? '')),
+        'brand' => (string)($printer['brand'] ?? ''),
+        'brandOverride' => trim((string)($_POST['brandOverride'] ?? '')),
         'active' => isset($_POST['active']),
     ];
 
@@ -62,7 +68,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         } else {
             $data['printerName'] = $live['name'];
-            $data['model'] = $live['model'];
+            if ($data['modelOverride'] === '') {
+                $data['model'] = $live['model'];
+            }
+            if ($data['brandOverride'] === '') {
+                $data['brand'] = $live['brand'];
+            }
         }
 
         if ($id !== null) {
@@ -85,58 +96,113 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $provider = printerProvider($printer);
 ?>
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title><?= $id !== null ? 'Edit Printer' : 'Add Printer' ?></title>
+    <link rel="stylesheet" href="admin.css">
+    <script src="../theme.js"></script>
+</head>
+<body>
+<main class="form-shell">
+    <div class="card form-card">
+        <p class="eyebrow">Printer inventory</p>
+        <h1><?= $id !== null ? 'Edit printer' : 'Add printer' ?></h1>
+        <p class="subtitle">Configure the provider connection and dashboard availability.</p>
 
-<link rel="stylesheet" href="admin.css">
+        <?php if ($error !== ''): ?>
+            <div class="error" role="alert"><?= htmlspecialchars($error) ?></div>
+        <?php endif; ?>
 
-<div class="card">
-<h1><?= $id !== null ? 'Edit Printer' : 'Add Printer' ?></h1>
+        <form method="post" class="printer-form">
+            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
 
-<?php if ($error !== ''): ?>
-<div class="error"><?= htmlspecialchars($error) ?></div>
-<?php endif; ?>
+            <?php if ($id !== null && !empty($printer['printerName'])): ?>
+                <div class="field-group">
+                    <label for="printer-name">Printer</label>
+                    <input id="printer-name" class="printer-name" value="<?= htmlspecialchars((string)$printer['printerName']) ?>" readonly>
+                </div>
+            <?php endif; ?>
 
-<form method="post">
-<input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrf_token()) ?>">
-<div class="form-row">
-  <?php if ($id !== null && !empty($printer['printerName'])): ?>
-    <input class="printer-name" value="<?= htmlspecialchars((string)$printer['printerName']) ?>" readonly>
-  <?php endif; ?>
+            <div class="field-group">
+                <label for="provider">Provider</label>
+                <select name="provider" id="provider">
+                    <option value="octoprint" <?= $provider === 'octoprint' ? 'selected' : '' ?>>OctoPrint</option>
+                    <option value="homeassistant" <?= $provider === 'homeassistant' ? 'selected' : '' ?>>Home Assistant / Bambu Lab</option>
+                </select>
+            </div>
 
-  <select name="provider" id="provider">
-    <option value="octoprint" <?= $provider === 'octoprint' ? 'selected' : '' ?>>OctoPrint</option>
-    <option value="homeassistant" <?= $provider === 'homeassistant' ? 'selected' : '' ?>>Home Assistant / Bambu Lab</option>
-  </select>
+            <div class="field-group">
+                <label for="model-override">Make / model override <span class="optional">Optional</span></label>
+                <input id="model-override" type="text" name="modelOverride"
+                       value="<?= htmlspecialchars((string)($printer['modelOverride'] ?? '')) ?>"
+                       placeholder="Auto-detect from provider">
+                <span class="field-help">
+                    Leave blank to use provider metadata.
+                    <?php if (!empty($printer['model'])): ?>
+                        Currently detected as <?= htmlspecialchars((string)$printer['model']) ?>.
+                    <?php endif; ?>
+                </span>
+            </div>
 
-  <span class="provider-fields" data-provider="octoprint">
-    <input type="text" name="url"
-           value="<?= htmlspecialchars((string)($printer['url'] ?? '')) ?>"
-           placeholder="OctoPrint URL">
-    <input type="text" name="apiKey"
-           value="<?= htmlspecialchars((string)($printer['apiKey'] ?? '')) ?>"
-           placeholder="API Key">
-  </span>
+            <div class="field-group">
+                <label for="brand-override">Brand override <span class="optional">Optional</span></label>
+                <input id="brand-override" type="text" name="brandOverride"
+                       value="<?= htmlspecialchars((string)($printer['brandOverride'] ?? '')) ?>"
+                       placeholder="Auto-detect from provider or model">
+                <span class="field-help">
+                    Controls the locally cached logo shown beside the printer.
+                    <?php if (!empty($printer['brand'])): ?>
+                        Currently detected as <?= htmlspecialchars((string)$printer['brand']) ?>.
+                    <?php endif; ?>
+                </span>
+            </div>
 
-  <span class="provider-fields" data-provider="homeassistant">
-    <input type="text" name="entityPrefix"
-           value="<?= htmlspecialchars((string)($printer['entityPrefix'] ?? '')) ?>"
-           placeholder="Entity prefix, e.g. bambu_a1"
-           pattern="[a-z0-9_]+">
-  </span>
+            <div class="provider-fields field-grid" data-provider="octoprint">
+                <div class="field-group">
+                    <label for="printer-url">OctoPrint URL</label>
+                    <input id="printer-url" type="url" name="url"
+                           value="<?= htmlspecialchars((string)($printer['url'] ?? '')) ?>"
+                           placeholder="http://printer.local">
+                </div>
+                <div class="field-group">
+                    <label for="printer-api-key">API key</label>
+                    <input id="printer-api-key" type="password" name="apiKey"
+                           value="<?= htmlspecialchars((string)($printer['apiKey'] ?? '')) ?>"
+                           placeholder="OctoPrint API key" autocomplete="off">
+                </div>
+            </div>
 
-  <button type="button" id="test-connection">Test Connection</button>
-  <span id="test-result"></span>
+            <div class="provider-fields" data-provider="homeassistant">
+                <div class="field-group">
+                    <label for="entity-prefix">Entity prefix</label>
+                    <input id="entity-prefix" type="text" name="entityPrefix"
+                           value="<?= htmlspecialchars((string)($printer['entityPrefix'] ?? '')) ?>"
+                           placeholder="bambu_a1" pattern="[a-z0-9_]+">
+                    <span class="field-help">The shared prefix used by this printer's Home Assistant entities.</span>
+                </div>
+            </div>
 
-  <label>
-    <input type="checkbox" name="active" <?= ($printer['active'] ?? true) ? 'checked' : '' ?>>
-    Active
-  </label>
-</div>
+            <div class="connection-row">
+                <button class="button secondary" type="button" id="test-connection">Test connection</button>
+                <span id="test-result" class="test-result" role="status"></span>
+            </div>
 
-<br><br>
-<button class="button">Save</button>
-<a class="button secondary" href="index.php">Cancel</a>
-</form>
-</div>
+            <label class="checkbox-row">
+                <input type="checkbox" name="active" <?= ($printer['active'] ?? true) ? 'checked' : '' ?>>
+                <span>Show this printer on the dashboard</span>
+            </label>
+
+            <div class="form-actions">
+                <button class="button" type="submit">Save printer</button>
+                <a class="button secondary" href="index.php">Cancel</a>
+            </div>
+        </form>
+    </div>
+</main>
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script>
@@ -170,3 +236,5 @@ $('#test-connection').click(function () {
     });
 });
 </script>
+</body>
+</html>

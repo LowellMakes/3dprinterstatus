@@ -35,11 +35,80 @@ function durationToSeconds(float|int $value, ?string $unit): float
     return (float)$value * $multiplier;
 }
 
+function normalizedKnownPrinterBrand(mixed $value): string
+{
+    if (!usefulHomeAssistantValue($value)) {
+        return '';
+    }
+
+    $value = trim((string)$value);
+    if (preg_match('/\bbambu(?:\s+lab)?\b/i', $value)) {
+        return 'Bambu Lab';
+    }
+    if (preg_match('/\b(?:original\s+)?prusa\b/i', $value)) {
+        return 'Prusa Research';
+    }
+    if (preg_match('/\bcreality\b|\bender\b/i', $value)) {
+        return 'Creality';
+    }
+
+    return '';
+}
+
+function printerBrand(array $printer, mixed $manufacturer = null, mixed $model = null): string
+{
+    $override = $printer['brandOverride'] ?? null;
+    if (usefulHomeAssistantValue($override)) {
+        return normalizedKnownPrinterBrand($override) ?: trim((string)$override);
+    }
+
+    if (usefulHomeAssistantValue($manufacturer)) {
+        return normalizedKnownPrinterBrand($manufacturer) ?: trim((string)$manufacturer);
+    }
+
+    $currentModelBrand = normalizedKnownPrinterBrand($model);
+    if ($currentModelBrand !== '') {
+        return $currentModelBrand;
+    }
+
+    $modelOverrideBrand = normalizedKnownPrinterBrand($printer['modelOverride'] ?? null);
+    if ($modelOverrideBrand !== '') {
+        return $modelOverrideBrand;
+    }
+
+    $entityPrefix = strtolower(trim((string)($printer['entityPrefix'] ?? '')));
+    if (preg_match('/^bambu(?:_|$)/', $entityPrefix)) {
+        return 'Bambu Lab';
+    }
+
+    $cachedBrand = $printer['brand'] ?? null;
+    if (usefulHomeAssistantValue($cachedBrand)) {
+        return normalizedKnownPrinterBrand($cachedBrand) ?: trim((string)$cachedBrand);
+    }
+
+    return normalizedKnownPrinterBrand($printer['model'] ?? null);
+}
+
+function printerBrandIcon(string $brand): string
+{
+    return match (strtolower(trim($brand))) {
+        'bambu', 'bambu lab' => 'bambu-lab',
+        'prusa', 'prusa research', 'original prusa' => 'prusa-research',
+        'creality' => 'creality',
+        default => 'generic',
+    };
+}
+
 function offlinePrinter(array $printer): array
 {
+    $brand = printerBrand($printer);
+
     return [
         'name' => (string)($printer['printerName'] ?? 'Unknown printer'),
-        'model' => (string)($printer['model'] ?? ''),
+        'model' => printerDisplayModel($printer),
+        'brand' => $brand,
+        'brandIcon' => printerBrandIcon($brand),
+        'file' => '',
         'status' => 'Offline',
         'progress' => '',
         'elapsed' => '',
@@ -106,6 +175,40 @@ function decodeSuccessfulJson(array $response): ?array
     return is_array($decoded) ? $decoded : null;
 }
 
+function octoPrintProfileModel(array $profiles): string
+{
+    foreach (($profiles['profiles'] ?? []) as $profile) {
+        if (!is_array($profile) || !($profile['current'] ?? false)) {
+            continue;
+        }
+        $model = trim((string)($profile['model'] ?? ''));
+        return strcasecmp($model, 'Generic RepRap Printer') === 0 ? '' : $model;
+    }
+
+    return '';
+}
+
+function octoPrintJobFilename(array $job): string
+{
+    foreach (['display', 'name', 'path'] as $key) {
+        $value = trim((string)($job['job']['file'][$key] ?? ''));
+        if ($value !== '') {
+            return basename($value);
+        }
+    }
+
+    return '';
+}
+
+function octoPrintJobFile(array $job, string $state): string
+{
+    if (!in_array($state, ['printing', 'paused', 'pausing', 'starting', 'resuming', 'finishing', 'cancelling'], true)) {
+        return '';
+    }
+
+    return octoPrintJobFilename($job);
+}
+
 function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
 {
     $request ??= 'httpJsonRequest';
@@ -121,10 +224,12 @@ function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
 
     $headers = ['X-Api-Key: ' . $apiKey];
     $job = decodeSuccessfulJson($request($baseUrl . '/api/job', $headers, null));
-    $settings = decodeSuccessfulJson($request($baseUrl . '/api/settings', $headers, null));
     if ($job === null) {
         return offlinePrinter($printer);
     }
+    $settings = decodeSuccessfulJson($request($baseUrl . '/api/settings', $headers, null));
+    $profiles = decodeSuccessfulJson($request($baseUrl . '/api/printerprofiles', $headers, null));
+    $profileModel = octoPrintProfileModel($profiles ?? []);
 
     $state = strtolower((string)($job['state'] ?? 'offline'));
     if ($state === 'offline') {
@@ -138,9 +243,15 @@ function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
         $progress = (int)(($printTime / ($printTime + $printTimeLeft)) * 100);
     }
 
+    $brand = printerBrand($printer, null, $profileModel);
+
     return [
         'name' => (string)($settings['appearance']['name'] ?? $printer['printerName'] ?? 'Unknown printer'),
-        'model' => '',
+        'model' => printerDisplayModel($printer, null, $profileModel),
+        'brand' => $brand,
+        'brandIcon' => printerBrandIcon($brand),
+        'file' => octoPrintJobFile($job, $state),
+        'lastFileCandidate' => octoPrintJobFilename($job),
         'status' => $state === 'operational' ? 'Ready' : (string)($job['state'] ?? 'Unknown'),
         'progress' => $progress,
         'elapsed' => $printTime === null ? '' : formatDuration($printTime),
@@ -162,18 +273,23 @@ function buildHomeAssistantTemplate(string $entityPrefix): string
     $progressEntity = "sensor.{$entityPrefix}_print_progress";
     $remainingEntity = "sensor.{$entityPrefix}_remaining_time";
     $startEntity = "sensor.{$entityPrefix}_start_time";
+    $gcodeFilenameEntity = "sensor.{$entityPrefix}_gcode_filename";
+    $taskNameEntity = "sensor.{$entityPrefix}_task_name";
 
     return "{{ {"
         . "'name': states('{$nameEntity}'), "
         . "'device_name_by_user': device_attr('{$statusEntity}', 'name_by_user'), "
         . "'device_name': device_attr('{$statusEntity}', 'name'), "
+        . "'manufacturer': device_attr('{$statusEntity}', 'manufacturer'), "
         . "'model': device_attr('{$statusEntity}', 'model'), "
         . "'online': is_state('{$onlineEntity}', 'on'), "
         . "'status': states('{$statusEntity}'), "
         . "'progress': states('{$progressEntity}'), "
         . "'remaining_hours': states('{$remainingEntity}'), "
         . "'remaining_unit': state_attr('{$remainingEntity}', 'unit_of_measurement'), "
-        . "'start_time': states('{$startEntity}')"
+        . "'start_time': states('{$startEntity}'), "
+        . "'gcode_filename': states('{$gcodeFilenameEntity}'), "
+        . "'task_name': states('{$taskNameEntity}')"
         . "} | to_json }}";
 }
 
@@ -182,6 +298,24 @@ function usefulHomeAssistantValue(mixed $value): bool
     return $value !== null
         && $value !== ''
         && !in_array(strtolower((string)$value), ['unknown', 'unavailable', 'none'], true);
+}
+
+function printerDisplayModel(array $printer, mixed $manufacturer = null, mixed $model = null): string
+{
+    $override = trim((string)($printer['modelOverride'] ?? ''));
+    if ($override !== '') {
+        return $override;
+    }
+    $detectedModel = usefulHomeAssistantValue($model) ? trim((string)$model) : '';
+    $detectedManufacturer = usefulHomeAssistantValue($manufacturer) ? trim((string)$manufacturer) : '';
+    if ($detectedModel !== '' && $detectedManufacturer !== '') {
+        if (stripos($detectedModel, $detectedManufacturer) === 0) {
+            return $detectedModel;
+        }
+        return $detectedManufacturer . ' ' . $detectedModel;
+    }
+
+    return $detectedModel !== '' ? $detectedModel : (string)($printer['model'] ?? '');
 }
 
 function normalizeHomeAssistantPrinter(
@@ -211,9 +345,19 @@ function normalizeHomeAssistantPrinter(
             break;
         }
     }
-    $model = usefulHomeAssistantValue($data['model'] ?? null)
-        ? (string)$data['model']
-        : (string)($printer['model'] ?? '');
+    $model = printerDisplayModel($printer, $data['manufacturer'] ?? null, $data['model'] ?? null);
+    $brand = printerBrand($printer, $data['manufacturer'] ?? null, $data['model'] ?? null);
+
+    $lastFileCandidate = '';
+    foreach (['gcode_filename', 'task_name'] as $fileSource) {
+        if (usefulHomeAssistantValue($data[$fileSource] ?? null)) {
+            $lastFileCandidate = basename((string)$data[$fileSource]);
+            break;
+        }
+    }
+    $file = in_array($rawStatus, ['running', 'pause', 'paused', 'prepare', 'init', 'slicing'], true)
+        ? $lastFileCandidate
+        : '';
 
     $progress = '';
     if (is_numeric($data['progress'] ?? null)) {
@@ -245,6 +389,10 @@ function normalizeHomeAssistantPrinter(
     return [
         'name' => $name,
         'model' => $model,
+        'brand' => $brand,
+        'brandIcon' => printerBrandIcon($brand),
+        'file' => $file,
+        'lastFileCandidate' => $lastFileCandidate,
         'status' => $status,
         'progress' => $progress,
         'elapsed' => $elapsed,
