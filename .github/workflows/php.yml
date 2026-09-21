@@ -27,8 +27,8 @@ jobs:
         run: php tests/run.php
       - name: Check helper syntax
         run: |
-          bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh scripts/cache-brand-icons.sh tests/brand-icons-test.sh tests/smoke.sh tests/deployment.sh tests/naming.sh tests/naming-test.sh
-          python3 -m py_compile scripts/validate-brand-icon.py tests/fake_github_api.py
+          bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh deploy/migrate-staging-to-direct-checkout.sh scripts/cache-brand-icons.sh tests/brand-icons-test.sh tests/smoke.sh tests/deployment.sh tests/naming.sh tests/naming-test.sh
+          python3 -m py_compile scripts/validate-brand-icon.py
           node --check theme.js
           node --check tests/theme-test.js
           node --check tests/dashboard-script-test.js

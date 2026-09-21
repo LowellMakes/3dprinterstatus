@@ -29,7 +29,7 @@ The display name prefers the Home Assistant device's user-assigned name, then fa
 
 - PHP 8.1 or newer with the cURL extension
 - Home Assistant with the Bambu Lab integration for Bambu printers
-- Git, curl, and jq for automatic staging deployment
+- Git, curl, jq, and flock for explicit staging deployment
 
 ## Environment configuration
 
@@ -75,7 +75,7 @@ Static configuration and secrets:
 
     /etc/3dprinterstatus/live.json
     /etc/3dprinterstatus/staging.json
-    /etc/3dprinterstatus/deploy-staging.env   # optional GitHub token
+
 
 Mutable printer inventories:
 
@@ -95,7 +95,7 @@ The normal printer-data cache expires after 60 seconds. The adjacent `last-jobs`
 
 ## Migrating an existing server
 
-After this version has been merged to `main`, run from a current checkout and explicitly identify the authentication file from the currently running site:
+After this version has been pushed and its checks pass, use a clean checkout of the exact reviewed commit whose `origin` is `https://github.com/LowellMakes/3dprinterstatus.git`. Explicitly identify the authentication file from the currently running site:
 
     sudo LEGACY_AUTH_FILE=/path/to/current/site/admin/auth.php SOURCE_DIR="$PWD" deploy/install-server.sh
 
@@ -106,32 +106,56 @@ The installer:
 3. Copies live and staging printer inventories into separate `/var/lib` paths.
 4. Creates separate `/var/cache` paths.
 5. Creates root-owned live and staging config files.
-6. Converts `/var/www/staging` to a stable symlink pointing at a marked staging release.
-7. Installs and starts the locked, atomic staging deployment service.
+6. Installs the explicit staging and live deployment commands.
+
+The installer succeeds only when `/var/www/staging` is already a direct Git checkout (a real directory containing `.git`). On a legacy symlink installation or when staging is absent, the first invocation prepares the isolated configuration and state needed by the migration health check, but exits nonzero before replacing any installed deployment tools. This is an intentionally incomplete installation: run the one-time migration directly from the reviewed source checkout, then rerun the installer.
 
 Existing destination configs and printer inventories are not overwritten. Inspect them after migration:
 
     sudo jq 'del(.home_assistant.token, .admin.password_hash)' /etc/3dprinterstatus/live.json
     sudo jq 'del(.home_assistant.token, .admin.password_hash)' /etc/3dprinterstatus/staging.json
 
+A server that still uses the old commit-named staging releases and `/var/www/staging` symlink must be converted once. Pass the same lowercase 40-character SHA checked out in `SOURCE_DIR`:
+
+    sudo SOURCE_DIR="$PWD" deploy/migrate-staging-to-direct-checkout.sh <reviewed-40-character-commit>
+
+The migration is intentionally tied to the fixed server paths documented here; destructive paths cannot be overridden with environment variables. It fails closed unless the old deployment tree contains staging artifacts only, `/var/www/live` and Nginx have no live dependency on that tree, the legacy service and staging Nginx vhost are present, and the reviewed SHA is reachable from the canonical origin. If the old tree contains `live.git`, `releases/live`, or any unknown entry, stop and resolve that live dependency instead of deleting it.
+
+Before cutover, the script archives the complete old deploy tree, staging symlink, deployer, systemd service/environment, helper scripts that are present, and both the available and enabled staging Nginx configuration. Archives are written under `/var/backups/3dprinterstatus/staging-direct-checkout-<UTC timestamp>/`; the script verifies the SHA-256 checksum and compares every extracted artifact with its source. It runs the requested checkout's PHP and icon tests as `www-data`, stops and verifies the old service, adds an Nginx rule denying dotfiles (including `.git`), and validates Nginx before activation.
+
+Cutover retains both the old release link and deploy tree until bounded HTTP requests to the loopback Nginx listener, using the staging Host header, return the exact reviewed SHA from `staging-revision.txt`, deny access to `.git`, and return a valid staging API response. An error or INT/TERM/HUP before that health-check commit point restores the old link, service state, Nginx configuration, and deployer. After the commit point, a cleanup error leaves the healthy direct checkout active and exits nonzero with an incomplete-cleanup warning; use the verified archive to inspect the remaining legacy files rather than attempting an automatic rollback.
+
+After a successful migration, rerun the installer. It must now complete with a zero exit status:
+
+    sudo LEGACY_AUTH_FILE=/path/to/current/site/admin/auth.php SOURCE_DIR="$PWD" deploy/install-server.sh
+
 ## Deployment
 
 ### Staging
 
-`.github/workflows/php.yml` runs all PHP syntax checks, the test suite, and shell syntax checks on pushes and pull requests targeting `main`.
+`/var/www/staging` is one ordinary Git working tree, checked out in detached-HEAD mode at the exact commit being tested. It is not a symlink. Runtime configuration, printer inventory, and caches remain outside the checkout under `/etc`, `/var/lib/3dprinterstatus/staging`, and `/var/cache/3dprinterstatus/staging`.
 
-`deploy-staging.service` polls for the newest successful `push` workflow on `main` every five minutes. It creates a complete, immutable release under `/var/lib/3dprinterstatus/deploy/releases/staging`, adds the `.staging` marker itself, and atomically switches the `/var/www/staging` symlink. A deployment lock prevents concurrent writers, and the deployer fails closed if the current release is not explicitly marked as staging.
+There is one staging deployment command:
 
-The optional `/etc/3dprinterstatus/deploy-staging.env` may contain a token to avoid unauthenticated GitHub API limits:
+    sudo deploy-staging.sh <reviewed-40-character-commit>
 
-    GITHUB_TOKEN=<read-only-token>
+The deployer:
 
-The token only needs read access to Actions metadata for this public repository.
+1. Refuses symlinks, non-Git directories, missing `.staging` markers, and dirty working trees.
+2. Takes the staging deployment lock.
+3. Fetches branches and tags from the pinned canonical `origin` and requires the exact requested commit to be reachable from one of them.
+4. Records the current commit, checks out the requested commit directly in `/var/www/staging`, and removes non-ignored untracked files.
+5. Applies root-owned, web-readable permissions while keeping `.git` unreadable by the web-service account.
+6. Runs PHP lint, the PHP test suite, and brand-icon validation.
+7. Reloads PHP-FPM, clears the short-lived printer-data cache, and validates the staging API.
+8. Restores the previous commit and reloads PHP-FPM automatically if any post-checkout step fails.
 
-Check the service with:
+Run GitHub Actions first, then deploy the exact reviewed commit. Check the active checkout with:
 
-    systemctl status deploy-staging.service
-    journalctl -u deploy-staging.service
+    sudo git -C /var/www/staging status --short --branch
+    sudo git -C /var/www/staging rev-parse HEAD
+
+No staging polling service is installed or used.
 
 ### Live
 
@@ -205,5 +229,5 @@ Run the dependency-free PHP test suite:
 Run PHP syntax checks over the application and deployment scripts:
 
     find . -name '*.php' -print0 | xargs -0 -n1 php -l
-    bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh
+    bash -n deploy-staging.sh deploy-live.sh deploy/install-server.sh deploy/migrate-staging-to-direct-checkout.sh
     tests/naming-test.sh
