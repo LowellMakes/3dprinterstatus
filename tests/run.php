@@ -377,6 +377,53 @@ test('job history keeps the latest filename after a printer becomes idle', funct
     assertSameValue($history, $retainedHistory);
 });
 
+test('job history seeds an idle printer from the provider retained filename', function (): void {
+    $printers = [[
+        'provider' => 'octoprint',
+        'url' => 'http://octoprint.local',
+        'active' => true,
+    ]];
+
+    [$rows, $history] = mergePrinterJobHistory(
+        $printers,
+        [[
+            'name' => 'Ares',
+            'file' => '',
+            'lastFileCandidate' => 'folder/previous-job.gcode',
+        ]],
+        []
+    );
+
+    assertSameValue('previous-job.gcode', $rows[0]['file']);
+    assertSameValue(false, $rows[0]['fileCurrent']);
+    assertSameValue(false, array_key_exists('lastFileCandidate', $rows[0]));
+    assertSameValue('previous-job.gcode', $history[printerJobHistoryKey($printers[0])] ?? null);
+});
+
+test('stale idle filename candidates cannot overwrite newer job history', function (): void {
+    $printers = [[
+        'provider' => 'octoprint',
+        'url' => 'http://octoprint.local',
+        'active' => true,
+    ]];
+    $key = printerJobHistoryKey($printers[0]);
+
+    [$rows, $history] = mergePrinterJobHistory(
+        $printers,
+        [[
+            'name' => 'Ares',
+            'file' => '',
+            'lastFileCandidate' => 'older-job.gcode',
+        ]],
+        [$key => 'newer-job.gcode']
+    );
+
+    assertSameValue('newer-job.gcode', $rows[0]['file']);
+    assertSameValue(false, $rows[0]['fileCurrent']);
+    assertSameValue(false, array_key_exists('lastFileCandidate', $rows[0]));
+    assertSameValue('newer-job.gcode', $history[$key] ?? null);
+});
+
 test('job history follows stable printer identity rather than display order', function (): void {
     $ares = ['provider' => 'octoprint', 'url' => 'http://ares.local', 'apiKey' => 'first', 'active' => true];
     $kestrel = ['provider' => 'homeassistant', 'entityPrefix' => 'bambu_kestrel', 'active' => true];
@@ -453,6 +500,13 @@ test('job history refuses missing or unsafe printer identities', function (): vo
         'apiKey' => 'rotated-secret',
     ]);
     assertSameValue($first, $second);
+
+    [$rows] = mergePrinterJobHistory(
+        [['provider' => 'octoprint', 'printerName' => 'No stable identity', 'active' => true]],
+        [['name' => 'Ares', 'file' => '', 'lastFileCandidate' => 'private-candidate.gcode']],
+        []
+    );
+    assertSameValue(false, array_key_exists('lastFileCandidate', $rows[0]));
 });
 
 test('job history is persisted separately and malformed entries are ignored', function (): void {
@@ -478,6 +532,38 @@ test('job history is persisted separately and malformed entries are ignored', fu
     } finally {
         if (is_file($path)) {
             unlink($path);
+        }
+    }
+});
+
+test('unreadable job history cannot be mistaken for empty history and reseeded', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-history-unreadable-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create unreadable history test file.');
+    }
+    file_put_contents($path, str_repeat('x', 1048577));
+    $messages = [];
+
+    try {
+        $rows = applyPrinterJobHistory(
+            $path,
+            [['provider' => 'octoprint', 'url' => 'http://ares.local', 'active' => true]],
+            [['name' => 'Ares', 'file' => '', 'lastFileCandidate' => 'older-job.gcode']],
+            static function (string $message) use (&$messages): void {
+                $messages[] = $message;
+            }
+        );
+
+        assertSameValue('', $rows[0]['file']);
+        assertSameValue(false, $rows[0]['fileCurrent']);
+        assertSameValue(false, array_key_exists('lastFileCandidate', $rows[0]));
+        assertSameValue(1048577, filesize($path));
+        assertSameValue(true, count($messages) > 0);
+    } finally {
+        foreach ([$path, $path . '.lock'] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
+            }
         }
     }
 });
@@ -593,12 +679,13 @@ test('job-history storage failure does not hide current printer data', function 
     $rows = applyPrinterJobHistory(
         '/does/not/exist/printer-history.json',
         [['provider' => 'octoprint', 'url' => 'http://ares.local', 'active' => true]],
-        [['name' => 'Ares', 'file' => 'current.gcode']],
+        [['name' => 'Ares', 'file' => 'current.gcode', 'lastFileCandidate' => 'current.gcode']],
         static function (string $message): void {
         }
     );
     assertSameValue('current.gcode', $rows[0]['file']);
     assertSameValue(true, $rows[0]['fileCurrent']);
+    assertSameValue(false, array_key_exists('lastFileCandidate', $rows[0]));
 });
 
 test('busy job-history lock falls back to current data within a bounded time', function (): void {
@@ -607,6 +694,12 @@ test('busy job-history lock falls back to current data within a bounded time', f
         throw new RuntimeException('Could not create busy-lock test file.');
     }
     unlink($path);
+    $printers = [
+        ['provider' => 'octoprint', 'url' => 'http://ares.local', 'active' => true],
+        ['provider' => 'octoprint', 'url' => 'http://kestrel.local', 'active' => true],
+    ];
+    $kestrelKey = printerJobHistoryKey($printers[1]);
+    writePrinterJobHistory($path, [$kestrelKey => 'newer-job.gcode']);
     $lock = fopen($path . '.lock', 'c');
     if ($lock === false || !flock($lock, LOCK_EX)) {
         throw new RuntimeException('Could not hold the history test lock.');
@@ -616,8 +709,11 @@ test('busy job-history lock falls back to current data within a bounded time', f
         $started = microtime(true);
         $rows = applyPrinterJobHistory(
             $path,
-            [['provider' => 'octoprint', 'url' => 'http://ares.local', 'active' => true]],
-            [['name' => 'Ares', 'file' => 'current.gcode']],
+            $printers,
+            [
+                ['name' => 'Ares', 'file' => 'current.gcode', 'lastFileCandidate' => 'current.gcode'],
+                ['name' => 'Kestrel', 'file' => '', 'lastFileCandidate' => 'older-job.gcode'],
+            ],
             static function (string $message): void {
             }
         );
@@ -627,6 +723,11 @@ test('busy job-history lock falls back to current data within a bounded time', f
         }
         assertSameValue('current.gcode', $rows[0]['file']);
         assertSameValue(true, $rows[0]['fileCurrent']);
+        assertSameValue(false, array_key_exists('lastFileCandidate', $rows[0]));
+        assertSameValue('', $rows[1]['file']);
+        assertSameValue(false, $rows[1]['fileCurrent']);
+        assertSameValue(false, array_key_exists('lastFileCandidate', $rows[1]));
+        assertSameValue('newer-job.gcode', loadPrinterJobHistory($path)[$kestrelKey] ?? null);
     } finally {
         flock($lock, LOCK_UN);
         fclose($lock);
@@ -675,6 +776,35 @@ test('OctoPrint response is normalized without changing legacy behavior', functi
     assertSameValue('30mins', $result['elapsed']);
     assertSameValue('30mins', $result['left']);
     assertSameValue('printing', $result['colorClass']);
+});
+
+test('idle OctoPrint exposes its retained API job as a history candidate', function (): void {
+    $responses = [
+        '/api/job' => [
+            'state' => 'Operational',
+            'job' => ['file' => ['display' => 'previous-bracket.gcode']],
+            'progress' => ['printTime' => null, 'printTimeLeft' => null],
+        ],
+        '/api/settings' => ['appearance' => ['name' => 'Ares']],
+        '/api/printerprofiles' => ['profiles' => []],
+    ];
+    $request = static function (string $url, array $headers, ?string $body) use ($responses): array {
+        $path = parse_url($url, PHP_URL_PATH);
+        return [
+            'ok' => true,
+            'status' => 200,
+            'body' => json_encode($responses[$path], JSON_THROW_ON_ERROR),
+        ];
+    };
+
+    $result = fetchOctoPrintPrinter([
+        'url' => 'http://octoprint.local',
+        'apiKey' => 'secret',
+    ], $request);
+
+    assertSameValue('', $result['file']);
+    assertSameValue('previous-bracket.gcode', $result['lastFileCandidate']);
+    assertSameValue('Ready', $result['status']);
 });
 
 test('offline OctoPrint stops after the failed job request', function (): void {
@@ -784,6 +914,7 @@ test('idle and finished Bambu states display as ready', function (): void {
         assertSameValue('ready', $result['colorClass']);
         assertSameValue('', $result['elapsed']);
         assertSameValue('', $result['file']);
+        assertSameValue('last-print.gcode.3mf', $result['lastFileCandidate']);
     }
 });
 

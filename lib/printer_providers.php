@@ -188,11 +188,8 @@ function octoPrintProfileModel(array $profiles): string
     return '';
 }
 
-function octoPrintJobFile(array $job, string $state): string
+function octoPrintJobFilename(array $job): string
 {
-    if (!in_array($state, ['printing', 'paused', 'pausing', 'starting', 'resuming', 'finishing', 'cancelling'], true)) {
-        return '';
-    }
     foreach (['display', 'name', 'path'] as $key) {
         $value = trim((string)($job['job']['file'][$key] ?? ''));
         if ($value !== '') {
@@ -201,6 +198,15 @@ function octoPrintJobFile(array $job, string $state): string
     }
 
     return '';
+}
+
+function octoPrintJobFile(array $job, string $state): string
+{
+    if (!in_array($state, ['printing', 'paused', 'pausing', 'starting', 'resuming', 'finishing', 'cancelling'], true)) {
+        return '';
+    }
+
+    return octoPrintJobFilename($job);
 }
 
 function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
@@ -245,6 +251,7 @@ function fetchOctoPrintPrinter(array $printer, ?callable $request = null): array
         'brand' => $brand,
         'brandIcon' => printerBrandIcon($brand),
         'file' => octoPrintJobFile($job, $state),
+        'lastFileCandidate' => octoPrintJobFilename($job),
         'status' => $state === 'operational' ? 'Ready' : (string)($job['state'] ?? 'Unknown'),
         'progress' => $progress,
         'elapsed' => $printTime === null ? '' : formatDuration($printTime),
@@ -341,15 +348,16 @@ function normalizeHomeAssistantPrinter(
     $model = printerDisplayModel($printer, $data['manufacturer'] ?? null, $data['model'] ?? null);
     $brand = printerBrand($printer, $data['manufacturer'] ?? null, $data['model'] ?? null);
 
-    $file = '';
-    if (in_array($rawStatus, ['running', 'pause', 'paused', 'prepare', 'init', 'slicing'], true)) {
-        foreach (['gcode_filename', 'task_name'] as $fileSource) {
-            if (usefulHomeAssistantValue($data[$fileSource] ?? null)) {
-                $file = basename((string)$data[$fileSource]);
-                break;
-            }
+    $lastFileCandidate = '';
+    foreach (['gcode_filename', 'task_name'] as $fileSource) {
+        if (usefulHomeAssistantValue($data[$fileSource] ?? null)) {
+            $lastFileCandidate = basename((string)$data[$fileSource]);
+            break;
         }
     }
+    $file = in_array($rawStatus, ['running', 'pause', 'paused', 'prepare', 'init', 'slicing'], true)
+        ? $lastFileCandidate
+        : '';
 
     $progress = '';
     if (is_numeric($data['progress'] ?? null)) {
@@ -384,6 +392,7 @@ function normalizeHomeAssistantPrinter(
         'brand' => $brand,
         'brandIcon' => printerBrandIcon($brand),
         'file' => $file,
+        'lastFileCandidate' => $lastFileCandidate,
         'status' => $status,
         'progress' => $progress,
         'elapsed' => $elapsed,

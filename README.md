@@ -91,7 +91,7 @@ Generated caches:
 
 The PHP process needs read access to the selected config and read/write access to the selected printer inventory and cache directory. It does not need write access to the application checkout.
 
-The normal printer-data cache expires after 60 seconds. The adjacent `last-jobs` cache retains only the latest filename for each printer, keyed by its validated OctoPrint URL or Home Assistant entity prefix. History updates use an inter-process lock, and history-storage failures never prevent current printer data from being served. While a job is active the dashboard shows its filename normally; idle, failed, and offline printers show the retained value as `Last: filename`. API keys are never included in history keys or cache content.
+The normal printer-data cache expires after 60 seconds. The adjacent `last-jobs` cache retains only the latest filename for each printer, keyed by its validated OctoPrint URL or Home Assistant entity prefix. History updates use an inter-process lock, and history-storage failures never prevent current printer data from being served. The first refresh seeds history from the filename retained by OctoPrint or Home Assistant even when the printer is already idle. While a job is active the dashboard shows its filename normally; idle, failed, and offline printers show the retained value as `Last: filename`. API keys are never included in history keys or cache content.
 
 ## Migrating an existing server
 

@@ -66,10 +66,19 @@ function normalizedJobFilename(mixed $filename): string
     return $filename;
 }
 
-function loadPrinterJobHistory(string $path): array
+function loadPrinterJobHistory(string $path, ?bool &$loaded = null): array
 {
+    $loaded = false;
+    if (!is_file($path)) {
+        if (!file_exists($path) && !is_link($path)) {
+            $loaded = true;
+        }
+        return [];
+    }
+
+    clearstatcache(true, $path);
     $size = @filesize($path);
-    if (!is_file($path) || $size === false || $size > 1048576) {
+    if ($size === false || $size > 1048576) {
         return [];
     }
 
@@ -81,6 +90,7 @@ function loadPrinterJobHistory(string $path): array
     if (!is_array($decoded)) {
         return [];
     }
+    $loaded = true;
 
     $history = [];
     foreach ($decoded as $key => $filename) {
@@ -123,6 +133,8 @@ function mergePrinterJobHistory(array $printers, array $rows, array $history): a
 
     foreach ($rows as $index => &$row) {
         $currentFile = normalizedJobFilename($row['file'] ?? '');
+        $lastFileCandidate = normalizedJobFilename($row['lastFileCandidate'] ?? '');
+        unset($row['lastFileCandidate']);
         $printer = $activePrinters[$index] ?? null;
         if (!is_array($printer)) {
             $row['file'] = $currentFile;
@@ -144,6 +156,11 @@ function mergePrinterJobHistory(array $printers, array $rows, array $history): a
         }
 
         $lastFile = normalizedJobFilename($history[$key] ?? '');
+        if ($lastFile === '' && $lastFileCandidate !== '') {
+            $history[$key] = $lastFileCandidate;
+            $lastFile = $lastFileCandidate;
+        }
+
         $row['file'] = $lastFile;
         $row['fileCurrent'] = false;
     }
@@ -171,7 +188,14 @@ function applyPrinterJobHistory(
     array $rows,
     ?callable $logger = null
 ): array {
-    [$fallbackRows] = mergePrinterJobHistory($printers, $rows, []);
+    $fallbackInputRows = $rows;
+    foreach ($fallbackInputRows as &$fallbackInputRow) {
+        if (is_array($fallbackInputRow)) {
+            unset($fallbackInputRow['lastFileCandidate']);
+        }
+    }
+    unset($fallbackInputRow);
+    [$fallbackRows] = mergePrinterJobHistory($printers, $fallbackInputRows, []);
     $lock = @fopen($path . '.lock', 'c');
     if ($lock === false) {
         reportPrinterJobHistoryFailure($logger, 'Could not open the printer job-history lock.');
@@ -194,7 +218,12 @@ function applyPrinterJobHistory(
     }
 
     try {
-        $history = loadPrinterJobHistory($path);
+        $historyLoaded = false;
+        $history = loadPrinterJobHistory($path, $historyLoaded);
+        if (!$historyLoaded) {
+            reportPrinterJobHistoryFailure($logger, 'Could not read the printer job-history cache safely.');
+            return $fallbackRows;
+        }
         [$mergedRows, $updatedHistory] = mergePrinterJobHistory($printers, $rows, $history);
         if ($updatedHistory !== $history) {
             try {
