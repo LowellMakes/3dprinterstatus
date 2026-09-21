@@ -1,3 +1,4 @@
 .staging
 staging-revision.txt
+live-revision.txt
 __pycache__/
