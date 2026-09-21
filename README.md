@@ -159,11 +159,11 @@ No staging polling service is installed or used.
 
 ### Live
 
-Live deployment is deliberately explicit and is never performed by the staging workflow. Create the release branch from the reviewed `main` revision, then deploy it by name:
+Live deployment is deliberately explicit and is never performed by the staging workflow. Deploy the intended branch by name:
 
     sudo /usr/local/bin/deploy-live.sh release/3.0
 
-`deploy-live.sh` accepts only a `release/<major>.<minor>` branch. On its first run it clones that branch from the canonical GitHub origin into a real Git checkout at `/var/www/live`; later runs fetch and reset the same direct checkout to the current release-branch tip. It never creates release directories or symlinks.
+`deploy-live.sh` accepts any valid Git branch name. On its first run it clones that branch from the canonical GitHub origin into a real Git checkout at `/var/www/live`; later runs fetch and reset the same direct checkout to the current branch tip. It never creates release directories or symlinks.
 
 The command requires `/etc/3dprinterstatus/live.json` and the absolute `printers_file` referenced by that config to exist before deployment. It validates the JSON inventory, canonical origin, checkout ownership, permissions, clean worktree, absence of `.staging`, PHP syntax, PHP tests, and brand icons. Tests run as `www-data`. It writes `live-revision.txt`, clears the configured cache file, reloads PHP-FPM, and rolls back to the previous commit if validation or activation fails. A deployment lock prevents concurrent runs.
 

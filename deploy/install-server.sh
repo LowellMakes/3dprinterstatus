@@ -105,4 +105,4 @@ rm -f /tmp/printer_data_cache.json /tmp/staging_printer_data_cache.json /tmp/_st
 
 printf 'Installed isolated configuration, state, and explicit direct-checkout deployment tools.\n'
 printf 'Staging deployment: deploy-staging.sh <reviewed-40-character-commit>\n'
-printf 'Live deployment remains explicit: deploy-live.sh release/<major>.<minor>\n'
+printf 'Live deployment remains explicit: deploy-live.sh <branch-name>\n'

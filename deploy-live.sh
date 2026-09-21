@@ -11,10 +11,11 @@ readonly php_fpm_service="${PHP_FPM_SERVICE:-php8.1-fpm}"
 readonly config_file="${LIVE_CONFIG_FILE:-/etc/3dprinterstatus/live.json}"
 readonly allow_unprivileged="${ALLOW_UNPRIVILEGED:-0}"
 readonly repo_url="${REPO_URL:-$canonical_origin}"
-readonly requested_release="${1:-}"
+readonly requested_branch="${1:-}"
 
-if [[ ! "$requested_release" =~ ^release/[0-9]+\.[0-9]+([._-][A-Za-z0-9]+)?$ ]]; then
-    printf 'Usage: %s release/<major>.<minor>\n' "$0" >&2
+if [[ -z "$requested_branch" || "$requested_branch" == -* ]] ||
+    ! git check-ref-format "refs/heads/$requested_branch" >/dev/null 2>&1; then
+    printf 'Usage: %s <branch-name>\n' "$0" >&2
     exit 2
 fi
 if [[ "$allow_unprivileged" != '0' && "$allow_unprivileged" != '1' ]]; then
@@ -191,14 +192,14 @@ if [[ ! -e "$live_dir" ]]; then
     rmdir "$bootstrap_temp"
     git -c core.hooksPath=/dev/null clone --quiet --no-checkout --origin origin "$repo_url" "$bootstrap_temp"
     git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$bootstrap_temp" fetch --quiet --force --prune origin \
-        "+refs/heads/${requested_release}:refs/remotes/origin/${requested_release}"
+        "+refs/heads/${requested_branch}:refs/remotes/origin/${requested_branch}"
     git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$bootstrap_temp" show-ref --verify --quiet \
-        "refs/remotes/origin/${requested_release}" || {
-        printf 'Release branch was not found at origin: %s\n' "$requested_release" >&2
+        "refs/remotes/origin/${requested_branch}" || {
+        printf 'Branch was not found at origin: %s\n' "$requested_branch" >&2
         false
     }
-    git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$bootstrap_temp" checkout --quiet -B "$requested_release" \
-        "origin/$requested_release"
+    git -c core.hooksPath=/dev/null -c core.fsmonitor=false -C "$bootstrap_temp" checkout --quiet -B "$requested_branch" \
+        "origin/$requested_branch"
     mv "$bootstrap_temp" "$live_dir"
     bootstrap_temp=''
     created_checkout=1
@@ -236,13 +237,13 @@ else
     previous_branch=$(safe_git symbolic-ref --quiet --short HEAD || true)
     rollback_armed=1
     phase='fetch'
-    safe_git fetch --quiet --force --prune origin "+refs/heads/${requested_release}:refs/remotes/origin/${requested_release}"
-    safe_git show-ref --verify --quiet "refs/remotes/origin/${requested_release}" || {
-        printf 'Release branch was not found at origin: %s\n' "$requested_release" >&2
+    safe_git fetch --quiet --force --prune origin "+refs/heads/${requested_branch}:refs/remotes/origin/${requested_branch}"
+    safe_git show-ref --verify --quiet "refs/remotes/origin/${requested_branch}" || {
+        printf 'Branch was not found at origin: %s\n' "$requested_branch" >&2
         false
     }
     phase='checkout'
-    safe_git checkout --quiet -B "$requested_release" "origin/$requested_release"
+    safe_git checkout --quiet -B "$requested_branch" "origin/$requested_branch"
     safe_git clean -ffd >/dev/null
 fi
 
@@ -261,4 +262,4 @@ reload_php
 validate_security
 rollback_armed=0
 phase='complete'
-printf 'Live checkout now runs %s from %s.\n' "$resolved_commit" "$requested_release"
+printf 'Live checkout now runs %s from %s.\n' "$resolved_commit" "$requested_branch"

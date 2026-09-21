@@ -51,8 +51,8 @@ git -C "$source_repo" commit --quiet -m one
 first_commit=$(git -C "$source_repo" rev-parse HEAD)
 git clone --quiet --bare "$source_repo" "$remote_repo"
 git -C "$source_repo" remote add test-origin "$remote_repo"
-git -C "$source_repo" branch -M release/3.0
-git -C "$source_repo" push --quiet test-origin release/3.0
+git -C "$source_repo" branch -M feature/any-branch
+git -C "$source_repo" push --quiet test-origin feature/any-branch
 
 live_fake_bin="${temporary_dir}/live-fake-bin"
 mkdir "$live_fake_bin"
@@ -82,38 +82,38 @@ live_env=(
     TEST_UID_LOG="$live_uid_log" LIVE_RELOAD_LOG="$live_reload_log"
 )
 
-"${live_env[@]}" "$repo_root/deploy-live.sh" release/3.0 >/dev/null
+"${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null
 [[ -d "$live_dir" && ! -L "$live_dir" && -d "$live_dir/.git" ]]
 [[ "$(cat "$live_dir/version.txt")" == 'one' ]]
 [[ "$(cat "$live_dir/live-revision.txt")" == "$(git -C "$source_repo" rev-parse HEAD)" ]]
-[[ "$(git -C "$live_dir" symbolic-ref --short HEAD)" == 'release/3.0' ]]
+[[ "$(git -C "$live_dir" symbolic-ref --short HEAD)" == 'feature/any-branch' ]]
 [[ "$(cat "$live_uid_log")" == $'php:'"$(id -u)"$'\nbrand:'"$(id -u)" ]]
 
 printf 'two\n' >"${source_repo}/version.txt"
 git -C "$source_repo" commit --quiet -am two
 second_commit=$(git -C "$source_repo" rev-parse HEAD)
-git -C "$source_repo" push --quiet test-origin release/3.0
-"${live_env[@]}" "$repo_root/deploy-live.sh" release/3.0 >/dev/null
+git -C "$source_repo" push --quiet test-origin feature/any-branch
+"${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null
 [[ "$(git -C "$live_dir" rev-parse HEAD)" == "$second_commit" ]]
 [[ "$(cat "$live_dir/version.txt")" == 'two' ]]
 
 printf 'three\n' >"${source_repo}/version.txt"
 git -C "$source_repo" commit --quiet -am three
-git -C "$source_repo" push --quiet test-origin release/3.0
-if FAIL_LIVE_RELOAD=1 "${live_env[@]}" "$repo_root/deploy-live.sh" release/3.0 >/dev/null 2>&1; then
+git -C "$source_repo" push --quiet test-origin feature/any-branch
+if FAIL_LIVE_RELOAD=1 "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null 2>&1; then
     printf 'Live deployment ignored a failed PHP-FPM reload.\n' >&2
     exit 1
 fi
 [[ "$(git -C "$live_dir" rev-parse HEAD)" == "$second_commit" ]]
 [[ "$(cat "$live_dir/version.txt")" == 'two' ]]
 
-if "${live_env[@]}" "$repo_root/deploy-live.sh" main >/dev/null 2>&1; then
-    printf 'Live deployment accepted a non-release branch.\n' >&2
+if "${live_env[@]}" "$repo_root/deploy-live.sh" 'bad..branch' >/dev/null 2>&1; then
+    printf 'Live deployment accepted an invalid branch name.\n' >&2
     exit 1
 fi
 
 touch "$live_dir/.staging"
-if "${live_env[@]}" "$repo_root/deploy-live.sh" release/3.0 >/dev/null 2>&1; then
+if "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null 2>&1; then
     printf 'Live deployment accepted a staging marker.\n' >&2
     exit 1
 fi
@@ -122,7 +122,7 @@ rm "$live_dir/.staging"
 flock "${temporary_dir}/live.lock" sleep 10 &
 lock_pid=$!
 sleep 0.1
-if "${live_env[@]}" "$repo_root/deploy-live.sh" release/3.0 >/dev/null 2>&1; then
+if "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null 2>&1; then
     printf 'Live deployment ignored an active deployment lock.\n' >&2
     exit 1
 fi
