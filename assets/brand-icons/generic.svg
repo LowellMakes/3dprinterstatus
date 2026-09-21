@@ -1,1 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="3D printer"><g fill="none" stroke="#04aef0" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h32v10H8zM12 16v18h24V16M24 16v8M17 42h14v-8H17z"/><path d="M18 11h12M19 28h10"/></g></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="3D printer">
+  <g fill="none" stroke="#0B6CFF" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <!-- outer printer frame -->
+    <rect x="7" y="5.5" width="34" height="5.5" rx="1.6"/>
+    <circle cx="10" cy="8.25" r="0.55" fill="#0B6CFF" stroke="none"/>
+    <circle cx="38" cy="8.25" r="0.55" fill="#0B6CFF" stroke="none"/>
+    <path d="M9 11v26M39 11v26"/>
+    <rect x="7" y="37" width="34" height="4.3" rx="1.3"/>
+    <path d="M9.5 41.3v1.7h3.5v-1.7M35 41.3V43h3.5v-1.7"/>
+
+    <!-- X-axis rails -->
+    <path d="M11 14.8h10M27 14.8h10M11 17h10M27 17h10"/>
+
+    <!-- print head -->
+    <rect x="20.5" y="13" width="7" height="7.2" rx="0.8"/>
+    <path d="M24 11v2M22.2 20.2v1.8h3.6v-1.8"/>
+    <path d="M22.6 22l1.4 2.1 1.4-2.1z"/>
+
+    <!-- printed object -->
+    <path d="M21.3 30.8v-4.1h5.2v4.1"/>
+    <path d="M21.3 26.7l1.1-0.9h5.2l-1.1 0.9"/>
+    <path d="M26.5 26.7l1.1-0.9v4.1"/>
+
+    <!-- print bed -->
+    <rect x="14" y="30.8" width="20" height="3.2" rx="0.5"/>
+    <path d="M17.5 34v3M30.5 34v3"/>
+  </g>
+</svg>
