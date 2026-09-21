@@ -11,8 +11,34 @@
 <body>
     <svg class="icon-sprite" aria-hidden="true">
         <symbol id="icon-printer-3d" viewBox="0 0 24 24">
-            <path d="M5 3h14v5H5zM7 8v6h10V8M12 14v3M8 21h8v-4H8z"/>
-            <path d="M9 6h6M10 11h4"/>
+            <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                <!-- outer frame -->
+                <path d="M5 4.5h14"/>
+                <path d="M5 4.5v15"/>
+                <path d="M19 4.5v15"/>
+                <path d="M4 19.5h16"/>
+
+                <!-- gantry -->
+                <path d="M7 8h10"/>
+                <path d="M7 9.8h10"/>
+
+                <!-- print head -->
+                <rect x="10" y="7.2" width="4" height="4.6" rx="0.6"/>
+                <path d="M12 11.8v1.2"/>
+                <path d="M11.4 13h1.2l-.6.9z"/>
+
+                <!-- printed part -->
+                <path d="M11 13.9h2"/>
+                <path d="M11 14.8h2"/>
+
+                <!-- bed -->
+                <rect x="7" y="15.5" width="10" height="1.8" rx="0.4"/>
+                <path d="M9 17.3v1.3"/>
+                <path d="M15 17.3v1.3"/>
+
+                <!-- cube on bed -->
+                <path d="M10.4 13.8h3.2v1.7h-3.2z"/>
+            </g>
         </symbol>
         <symbol id="icon-total" viewBox="0 0 24 24">
             <path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z"/><path d="m4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5"/>
