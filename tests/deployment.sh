@@ -313,5 +313,13 @@ grep -Fq "cd / && find \"\$1\" -path \"\$1/.git\" -prune" "$migration_script" ||
 }
 grep -Fq "cd / && exec php \"\$1/tests/run.php\"" "$migration_script"
 grep -Fq "cd / && exec bash \"\$1/tests/brand-icons-test.sh\"" "$migration_script"
+grep -Fq -- "--resolve \"\${staging_host}:443:127.0.0.1\"" "$migration_script" || {
+    printf 'Migration health checks are not pinned to local Nginx over the real HTTPS virtual host.\n' >&2
+    exit 1
+}
+grep -Fq '"https://${staging_host}/staging-revision.txt' "$migration_script"
+grep -Fq 'Migration command failed at line' "$migration_script"
+grep -Fq 'readonly health_url="${HEALTH_URL:-https://${health_host}}"' "$repo_root/deploy-staging.sh"
+grep -Fq -- '--resolve "${health_host}:443:127.0.0.1"' "$repo_root/deploy-staging.sh"
 
 printf 'Direct-checkout deployment tests passed\n'

@@ -8,8 +8,8 @@ readonly lock_file="${STAGING_LOCK_FILE:-/run/lock/3dprinterstatus-staging.lock}
 readonly release_group="${RELEASE_GROUP:-www-data}"
 readonly web_user="${WEB_USER:-www-data}"
 readonly php_fpm_service="${PHP_FPM_SERVICE-php8.1-fpm}"
-readonly health_url="${HEALTH_URL:-http://127.0.0.1}"
 readonly health_host="${HEALTH_HOST:-staging.3dprinterstatus.com}"
+readonly health_url="${HEALTH_URL:-https://${health_host}}"
 readonly config_file="${STAGING_CONFIG_FILE:-/etc/3dprinterstatus/staging.json}"
 readonly run_application_tests="${RUN_APPLICATION_TESTS:-1}"
 readonly allow_unprivileged="${ALLOW_UNPRIVILEGED:-0}"
@@ -38,8 +38,12 @@ if [[ $EUID -ne 0 && "$allow_unprivileged" != '1' ]]; then
     printf 'Run this script with sudo.\n' >&2
     exit 1
 fi
-if [[ ! "$health_url" =~ ^http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?$ ]]; then
-    printf 'HEALTH_URL must be a local HTTP origin, not %s.\n' "$health_url" >&2
+if [[ "$health_url" == "https://${health_host}" ]]; then
+    readonly health_uses_https=1
+elif [[ "$allow_unprivileged" == '1' && "$health_url" =~ ^http://(127\.0\.0\.1|localhost|\[::1\])(:[0-9]+)?$ ]]; then
+    readonly health_uses_https=0
+else
+    printf 'HEALTH_URL must be the staging HTTPS origin (or local HTTP in explicit test mode), not %s.\n' "$health_url" >&2
     exit 2
 fi
 if ! id "$web_user" >/dev/null 2>&1; then
@@ -159,10 +163,17 @@ clear_cache() {
 
 health_response=''
 health_curl() {
-    curl --silent --show-error --connect-timeout 2 --max-time 10 \
-        --retry 2 --retry-all-errors --retry-max-time 20 \
-        --noproxy '*' \
-        -H "Host: $health_host" -H 'Cache-Control: no-cache' "$@"
+    if [[ "$health_uses_https" == '1' ]]; then
+        curl --silent --show-error --connect-timeout 2 --max-time 10 \
+            --retry 2 --retry-all-errors --retry-max-time 20 \
+            --noproxy '*' --resolve "${health_host}:443:127.0.0.1" \
+            -H 'Cache-Control: no-cache' "$@"
+    else
+        curl --silent --show-error --connect-timeout 2 --max-time 10 \
+            --retry 2 --retry-all-errors --retry-max-time 20 \
+            --noproxy '*' \
+            -H "Host: $health_host" -H 'Cache-Control: no-cache' "$@"
+    fi
 }
 
 verify_health() {

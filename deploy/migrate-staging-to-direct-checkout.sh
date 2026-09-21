@@ -270,6 +270,8 @@ rollback() {
 }
 handle_error() {
     local status=$?
+    local failed_line=${BASH_LINENO[0]:-unknown}
+    printf 'Migration command failed at line %s.\n' "$failed_line" >&2
     if [[ $committed -eq 1 ]]; then
         trap - ERR INT TERM HUP
         printf 'New checkout is healthy, but legacy cleanup is incomplete. Do not roll back; inspect %s.\n' "$archive_dir" >&2
@@ -383,17 +385,17 @@ health_response=$(mktemp /run/3dprinterstatus-health.XXXXXX)
 revision_response=$(mktemp /run/3dprinterstatus-revision.XXXXXX)
 curl_common=(--silent --show-error --retry 2 --retry-all-errors \
     --connect-timeout 2 --max-time 10 --retry-max-time 20 \
-    --noproxy '*' \
-    -H "Host: ${staging_host}" -H 'Cache-Control: no-cache')
-curl "${curl_common[@]}" --fail "http://127.0.0.1/staging-revision.txt?migration=${requested_commit}" -o "$revision_response"
+    --noproxy '*' --resolve "${staging_host}:443:127.0.0.1" \
+    -H 'Cache-Control: no-cache')
+curl "${curl_common[@]}" --fail "https://${staging_host}/staging-revision.txt?migration=${requested_commit}" -o "$revision_response"
 [[ $(tr -d '\r\n' <"$revision_response") == "$requested_commit" ]]
 dotfile_status=$(curl "${curl_common[@]}" -o /dev/null -w '%{http_code}' \
-    "http://127.0.0.1/.git/config?migration=${requested_commit}")
+    "https://${staging_host}/.git/config?migration=${requested_commit}")
 [[ "$dotfile_status" == '403' || "$dotfile_status" == '404' ]] || {
     printf 'Nginx dotfile protection returned HTTP %s for /.git/config.\n' "$dotfile_status" >&2
     false
 }
-curl "${curl_common[@]}" --fail "http://127.0.0.1/get_printer_data.php?migration=${requested_commit}" -o "$health_response"
+curl "${curl_common[@]}" --fail "https://${staging_host}/get_printer_data.php?migration=${requested_commit}" -o "$health_response"
 jq -e 'type == "array" and all(.[]; has("name") and has("file") and has("fileCurrent"))' \
     "$health_response" >/dev/null
 rm -f -- "$health_response" "$revision_response"
