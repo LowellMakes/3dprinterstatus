@@ -1107,11 +1107,11 @@ test('dashboard uses locally cached brand icons beside printer names', function 
     }
 });
 
-test('dashboard distinguishes current files from cached last-job filenames', function (): void {
+test('dashboard distinguishes retained filenames without redundant text labels', function (): void {
     $index = (string)file_get_contents(__DIR__ . '/../index.php');
     $styles = (string)file_get_contents(__DIR__ . '/../styles.css');
 
-    assertContainsText("printer.fileCurrent === false ? 'Last: ' : ''", $index);
+    assertNotContainsText("'Last: '", $index);
     assertContainsText(".toggleClass('file-last', printer.fileCurrent === false", $index);
     assertContainsText('.file-last', $styles);
 });
@@ -1124,9 +1124,9 @@ test('dashboard restores reference iconography glow and print file metadata', fu
         assertContainsText('id="' . $icon . '"', $index);
     }
     assertContainsText('data-label', $index);
-    assertContainsText("printer.file ? filePrefix + printer.file : '—'", $index);
+    assertContainsText(".text(printer.file || '—')", $index);
     assertContainsText(".attr('title', identity)", $index);
-    assertContainsText(".attr('title', printer.file ? filePrefix + printer.file : '')", $index);
+    assertContainsText(".attr('title', printer.file || '')", $index);
     assertContainsText('.summary-printing', $styles);
     assertContainsText('.summary-ready', $styles);
     assertContainsText('.summary-failed', $styles);
