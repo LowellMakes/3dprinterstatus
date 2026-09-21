@@ -29,7 +29,7 @@ The display name prefers the Home Assistant device's user-assigned name, then fa
 
 - PHP 8.1 or newer with the cURL extension
 - Home Assistant with the Bambu Lab integration for Bambu printers
-- Git, curl, jq, and flock for explicit staging deployment
+- Git, curl, jq, and flock for explicit staging and live deployment
 
 ## Environment configuration
 
@@ -159,11 +159,25 @@ No staging polling service is installed or used.
 
 ### Live
 
-Live deployment is deliberately explicit and is never performed by the staging service:
+Live deployment is deliberately explicit and is never performed by the staging workflow. Deploy the intended branch by name:
 
-    sudo deploy-live.sh <commit-or-tag>
+    sudo /usr/local/bin/deploy-live.sh release/3.0
 
-`deploy-live.sh` fetches tags and branches, resolves branch names through `origin`, and refuses to run if a `.staging` marker exists. It creates an immutable release under `/var/lib/3dprinterstatus/deploy/releases/live` and atomically switches `/var/www/live`. The existing site remains untouched until its Nginx vhost is intentionally switched to the new live web root. On its first run it preserves any existing non-release live tree as a timestamped sibling backup. A deployment lock prevents concurrent live updates.
+`deploy-live.sh` accepts any valid Git branch name. On its first run it clones that branch from the canonical GitHub origin into a real Git checkout at `/var/www/live`; later runs fetch and reset the same direct checkout to the current branch tip. It never creates release directories or symlinks.
+
+The command requires `/etc/3dprinterstatus/live.json` and the absolute `printers_file` referenced by that config to exist before deployment. It validates the JSON inventory, canonical origin, checkout ownership, permissions, clean worktree, absence of `.staging`, PHP syntax, PHP tests, and brand icons. Tests run as `www-data`. It writes `live-revision.txt`, clears the configured cache file, reloads PHP-FPM, and rolls back to the previous commit if validation or activation fails. A deployment lock prevents concurrent runs.
+
+The deployer does not modify Nginx. Keep the existing live vhost unchanged while testing `/var/www/live`; switch its document root only after the checkout and external live configuration have been verified. Before exposing the direct checkout, configure Nginx to deny dotfiles—especially `/.git`, `/.staging`, and environment files—while allowing `/.well-known` if required for ACME.
+
+Install the reviewed deployer before its first use:
+
+    sudo install -o root -g root -m 0755 deploy-live.sh /usr/local/bin/deploy-live.sh
+
+Inspect the deployed identity with:
+
+    sudo git -C /var/www/live status --short --branch
+    sudo git -C /var/www/live rev-parse HEAD
+    cat /var/www/live/live-revision.txt
 
 ## Adding printers through the admin page
 

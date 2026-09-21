@@ -14,15 +14,20 @@ trap cleanup EXIT
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 source_repo="${temporary_dir}/source"
 remote_repo="${temporary_dir}/remote.git"
-live_link="${temporary_dir}/www/live"
-live_deployment_dir="${temporary_dir}/live-deploy"
-mkdir -p "$source_repo" "$live_link"
-printf 'legacy live\n' >"${live_link}/legacy.txt"
+live_dir="${temporary_dir}/www/live"
+live_config="${temporary_dir}/etc/live.json"
+live_inventory="${temporary_dir}/state/live/printers.json"
+live_cache="${temporary_dir}/cache/live/printer-data.json"
+live_uid_log="${temporary_dir}/live-test-uids.log"
+live_reload_log="${temporary_dir}/live-reload.log"
+mkdir -p "$(dirname "$live_dir")" "$(dirname "$live_config")" "$(dirname "$live_inventory")" "$(dirname "$live_cache")"
+printf '{"printers_file":"%s","cache_file":"%s"}\n' "$live_inventory" "$live_cache" >"$live_config"
+printf '[]\n' >"$live_inventory"
 
 git init --quiet "$source_repo"
 git -C "$source_repo" config user.name 'Deployment Test'
 git -C "$source_repo" config user.email 'deployment-test@example.invalid'
-printf '.staging\nstaging-revision.txt\n' >"${source_repo}/.gitignore"
+printf '.staging\nlive-revision.txt\nstaging-revision.txt\n' >"${source_repo}/.gitignore"
 printf 'one\n' >"${source_repo}/version.txt"
 mkdir -p "${source_repo}/tests"
 cat >"${source_repo}/tests/run.php" <<'PHP'
@@ -46,43 +51,78 @@ git -C "$source_repo" commit --quiet -m one
 first_commit=$(git -C "$source_repo" rev-parse HEAD)
 git clone --quiet --bare "$source_repo" "$remote_repo"
 git -C "$source_repo" remote add test-origin "$remote_repo"
-git -C "$source_repo" push --quiet test-origin HEAD:main
+git -C "$source_repo" branch -M feature/any-branch
+git -C "$source_repo" push --quiet test-origin feature/any-branch
 
-LIVE_DIR="$live_link" DEPLOYMENT_DIR="$live_deployment_dir" \
-LIVE_LOCK_FILE="${temporary_dir}/live.lock" RELEASE_GROUP="$(id -gn)" REPO_URL="$remote_repo" \
-    "$repo_root/deploy-live.sh" "$first_commit" >/dev/null
-[[ -L "$live_link" ]]
-[[ "$(cat "${live_link}/version.txt")" == 'one' ]]
-shopt -s nullglob
-backup_files=("${live_link}.backup."*/legacy.txt)
-[[ ${#backup_files[@]} -eq 1 && -f "${backup_files[0]}" ]]
-shopt -u nullglob
+live_fake_bin="${temporary_dir}/live-fake-bin"
+mkdir "$live_fake_bin"
+cat >"${live_fake_bin}/systemctl" <<'SYSTEMCTL'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$LIVE_RELOAD_LOG"
+[[ "${FAIL_LIVE_RELOAD:-0}" != '1' ]]
+SYSTEMCTL
+chmod +x "${live_fake_bin}/systemctl"
+cat >"${live_fake_bin}/php" <<'PHP_COMMAND'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == '-l' ]]; then
+    exit 0
+fi
+[[ "$(id -u)" == "$EXPECTED_TEST_UID" ]]
+printf 'php:%s\n' "$(id -u)" >>"$TEST_UID_LOG"
+PHP_COMMAND
+chmod +x "${live_fake_bin}/php"
+
+live_env=(
+    env PATH="${live_fake_bin}:$PATH" LIVE_DIR="$live_dir"
+    LIVE_LOCK_FILE="${temporary_dir}/live.lock" RELEASE_GROUP="$(id -gn)"
+    WEB_USER="$(id -un)" PHP_FPM_SERVICE='test-php-fpm'
+    LIVE_CONFIG_FILE="$live_config" REPO_URL="$remote_repo"
+    ALLOW_UNPRIVILEGED=1 EXPECTED_TEST_UID="$(id -u)"
+    TEST_UID_LOG="$live_uid_log" LIVE_RELOAD_LOG="$live_reload_log"
+)
+
+"${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null
+[[ -d "$live_dir" && ! -L "$live_dir" && -d "$live_dir/.git" ]]
+[[ "$(cat "$live_dir/version.txt")" == 'one' ]]
+[[ "$(cat "$live_dir/live-revision.txt")" == "$(git -C "$source_repo" rev-parse HEAD)" ]]
+[[ "$(git -C "$live_dir" symbolic-ref --short HEAD)" == 'feature/any-branch' ]]
+[[ "$(cat "$live_uid_log")" == $'php:'"$(id -u)"$'\nbrand:'"$(id -u)" ]]
 
 printf 'two\n' >"${source_repo}/version.txt"
 git -C "$source_repo" commit --quiet -am two
 second_commit=$(git -C "$source_repo" rev-parse HEAD)
-git -C "$source_repo" push --quiet test-origin HEAD:main
-LIVE_DIR="$live_link" DEPLOYMENT_DIR="$live_deployment_dir" \
-LIVE_LOCK_FILE="${temporary_dir}/live.lock" RELEASE_GROUP="$(id -gn)" REPO_URL="$remote_repo" \
-    "$repo_root/deploy-live.sh" main >/dev/null
-[[ "$(basename "$(readlink -f "$live_link")")" == "$second_commit" ]]
-[[ "$(cat "$live_link/version.txt")" == 'two' ]]
+git -C "$source_repo" push --quiet test-origin feature/any-branch
+"${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null
+[[ "$(git -C "$live_dir" rev-parse HEAD)" == "$second_commit" ]]
+[[ "$(cat "$live_dir/version.txt")" == 'two' ]]
 
-touch "$(readlink -f "$live_link")/.staging"
-if LIVE_DIR="$live_link" DEPLOYMENT_DIR="$live_deployment_dir" \
-LIVE_LOCK_FILE="${temporary_dir}/live.lock" RELEASE_GROUP="$(id -gn)" REPO_URL="$remote_repo" \
-    "$repo_root/deploy-live.sh" "$first_commit" >/dev/null 2>&1; then
+printf 'three\n' >"${source_repo}/version.txt"
+git -C "$source_repo" commit --quiet -am three
+git -C "$source_repo" push --quiet test-origin feature/any-branch
+if FAIL_LIVE_RELOAD=1 "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null 2>&1; then
+    printf 'Live deployment ignored a failed PHP-FPM reload.\n' >&2
+    exit 1
+fi
+[[ "$(git -C "$live_dir" rev-parse HEAD)" == "$second_commit" ]]
+[[ "$(cat "$live_dir/version.txt")" == 'two' ]]
+
+if "${live_env[@]}" "$repo_root/deploy-live.sh" 'bad..branch' >/dev/null 2>&1; then
+    printf 'Live deployment accepted an invalid branch name.\n' >&2
+    exit 1
+fi
+
+touch "$live_dir/.staging"
+if "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null 2>&1; then
     printf 'Live deployment accepted a staging marker.\n' >&2
     exit 1
 fi
-rm "$(readlink -f "$live_link")/.staging"
+rm "$live_dir/.staging"
 
 flock "${temporary_dir}/live.lock" sleep 10 &
 lock_pid=$!
 sleep 0.1
-if LIVE_DIR="$live_link" DEPLOYMENT_DIR="$live_deployment_dir" \
-LIVE_LOCK_FILE="${temporary_dir}/live.lock" RELEASE_GROUP="$(id -gn)" REPO_URL="$remote_repo" \
-    "$repo_root/deploy-live.sh" "$first_commit" >/dev/null 2>&1; then
+if "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null 2>&1; then
     printf 'Live deployment ignored an active deployment lock.\n' >&2
     exit 1
 fi
@@ -264,8 +304,8 @@ git -C "$staging_dir" check-ignore --quiet staging-revision.txt
 grep -qx "php:$(id -u)" "$uid_log"
 grep -qx "brand:$(id -u)" "$uid_log"
 
-printf 'three\n' >"${source_repo}/version.txt"
-git -C "$source_repo" commit --quiet -am three
+printf 'four\n' >"${source_repo}/version.txt"
+git -C "$source_repo" commit --quiet -am four
 third_commit=$(git -C "$source_repo" rev-parse HEAD)
 git -C "$source_repo" push --quiet test-origin HEAD:main
 if env "${common_env[@]:1}" FAIL_RELOAD_ONCE=1 FAIL_RELOAD_MARKER="$fail_marker" \
