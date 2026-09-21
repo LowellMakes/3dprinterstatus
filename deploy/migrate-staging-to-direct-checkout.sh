@@ -323,9 +323,9 @@ chmod -R g+rX,o-rwx "$checkout_temp"
 chown -R root:root "$checkout_temp/.git"
 chmod -R go-rwx "$checkout_temp/.git"
 runuser -u "$web_user" -- test ! -r "$checkout_temp/.git/config"
-runuser -u "$web_user" -- bash -c 'find "$1" -name "*.php" -print0 | xargs -0 -n1 php -l >/dev/null' _ "$checkout_temp"
-runuser -u "$web_user" -- php "$checkout_temp/tests/run.php" >/dev/null
-runuser -u "$web_user" -- bash "$checkout_temp/tests/brand-icons-test.sh" >/dev/null
+runuser -u "$web_user" -- bash -c 'cd / && find "$1" -path "$1/.git" -prune -o -name "*.php" -print0 | xargs -0 -n1 php -l >/dev/null' _ "$checkout_temp"
+runuser -u "$web_user" -- bash -c 'cd / && exec php "$1/tests/run.php"' _ "$checkout_temp" >/dev/null
+runuser -u "$web_user" -- bash -c 'cd / && exec bash "$1/tests/brand-icons-test.sh"' _ "$checkout_temp" >/dev/null
 
 # Stop the polling writer and prove it cannot race the cutover.
 operations_started=1

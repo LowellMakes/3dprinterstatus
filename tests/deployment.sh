@@ -306,4 +306,12 @@ if env "${common_env[@]:1}" STAGING_DIR="${temporary_dir}/staging-link" \
     exit 1
 fi
 
+migration_script="$repo_root/deploy/migrate-staging-to-direct-checkout.sh"
+grep -Fq "cd / && find \"\$1\" -path \"\$1/.git\" -prune" "$migration_script" || {
+    printf 'Migration validation does not leave an inaccessible invoking directory and prune protected Git metadata.\n' >&2
+    exit 1
+}
+grep -Fq "cd / && exec php \"\$1/tests/run.php\"" "$migration_script"
+grep -Fq "cd / && exec bash \"\$1/tests/brand-icons-test.sh\"" "$migration_script"
+
 printf 'Direct-checkout deployment tests passed\n'
