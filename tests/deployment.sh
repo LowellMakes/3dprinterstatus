@@ -20,7 +20,8 @@ live_inventory="${temporary_dir}/state/live/printers.json"
 live_cache="${temporary_dir}/cache/live/printer-data.json"
 live_uid_log="${temporary_dir}/live-test-uids.log"
 live_reload_log="${temporary_dir}/live-reload.log"
-mkdir -p "$(dirname "$live_dir")" "$(dirname "$live_config")" "$(dirname "$live_inventory")" "$(dirname "$live_cache")"
+live_lock="${temporary_dir}/run/lock/live.lock"
+mkdir -p "$(dirname "$live_config")" "$(dirname "$live_inventory")"
 printf '{"printers_file":"%s","cache_file":"%s"}\n' "$live_inventory" "$live_cache" >"$live_config"
 printf '[]\n' >"$live_inventory"
 
@@ -75,7 +76,7 @@ chmod +x "${live_fake_bin}/php"
 
 live_env=(
     env PATH="${live_fake_bin}:$PATH" LIVE_DIR="$live_dir"
-    LIVE_LOCK_FILE="${temporary_dir}/live.lock" RELEASE_GROUP="$(id -gn)"
+    LIVE_LOCK_FILE="$live_lock" RELEASE_GROUP="$(id -gn)"
     WEB_USER="$(id -un)" PHP_FPM_SERVICE='test-php-fpm'
     LIVE_CONFIG_FILE="$live_config" REPO_URL="$remote_repo"
     ALLOW_UNPRIVILEGED=1 EXPECTED_TEST_UID="$(id -u)"
@@ -84,6 +85,7 @@ live_env=(
 
 "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null
 [[ -d "$live_dir" && ! -L "$live_dir" && -d "$live_dir/.git" ]]
+[[ -d "$(dirname "$live_lock")" && -d "$(dirname "$live_cache")" ]]
 [[ "$(cat "$live_dir/version.txt")" == 'one' ]]
 [[ "$(cat "$live_dir/live-revision.txt")" == "$(git -C "$source_repo" rev-parse HEAD)" ]]
 [[ "$(git -C "$live_dir" symbolic-ref --short HEAD)" == 'feature/any-branch' ]]
@@ -119,7 +121,7 @@ if "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null 2>
 fi
 rm "$live_dir/.staging"
 
-flock "${temporary_dir}/live.lock" sleep 10 &
+flock "$live_lock" sleep 10 &
 lock_pid=$!
 sleep 0.1
 if "${live_env[@]}" "$repo_root/deploy-live.sh" feature/any-branch >/dev/null 2>&1; then
