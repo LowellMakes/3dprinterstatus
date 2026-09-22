@@ -31,7 +31,7 @@ if [[ $EUID -ne 0 && "$allow_unprivileged" != '1' ]]; then
     exit 1
 fi
 
-for command_name in find flock git id jq mktemp stat xargs; do
+for command_name in find flock git id install jq mktemp stat xargs; do
     command -v "$command_name" >/dev/null 2>&1 || {
         printf 'Missing dependency: %s\n' "$command_name" >&2
         exit 1
@@ -50,6 +50,27 @@ if [[ $EUID -eq 0 && $(id -u "$web_user") -ne 0 ]]; then
     command -v runuser >/dev/null 2>&1 || { printf 'Missing dependency: runuser\n' >&2; exit 1; }
 fi
 
+install_directory() {
+    local owner=$1
+    local group=$2
+    local mode=$3
+    local directory=$4
+
+    [[ ! -e "$directory" || -d "$directory" && ! -L "$directory" ]] || {
+        printf 'Required directory path is not a real directory: %s\n' "$directory" >&2
+        return 1
+    }
+    if [[ $EUID -eq 0 ]]; then
+        install -d -o "$owner" -g "$group" -m "$mode" "$directory"
+    else
+        install -d -m "$mode" "$directory"
+    fi
+}
+
+install_directory root root 0755 "$(dirname "$live_dir")"
+install_directory root root 0755 "$(dirname "$lock_file")"
+install_directory root "$release_group" 0750 "$(dirname "$config_file")"
+
 [[ -f "$config_file" && ! -L "$config_file" ]] || {
     printf 'Live configuration must be a regular file: %s\n' "$config_file" >&2
     exit 1
@@ -62,6 +83,8 @@ cache_file=$(jq -er '.cache_file | select(type == "string" and startswith("/"))'
     printf 'Live configuration has no valid absolute cache_file.\n' >&2
     exit 1
 }
+install_directory root "$release_group" 2770 "$(dirname "$printers_file")"
+install_directory "$web_user" "$release_group" 2770 "$(dirname "$cache_file")"
 [[ -f "$printers_file" && ! -L "$printers_file" ]] || {
     printf 'Live printer inventory must be a regular file: %s\n' "$printers_file" >&2
     exit 1

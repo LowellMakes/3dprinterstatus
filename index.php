@@ -124,7 +124,7 @@
             <div id="loading-state" class="loading-state" role="status">
                 <span class="loading-printer" aria-hidden="true"><svg class="icon"><use href="#icon-printer-3d"></use></svg></span>
                 <strong>Loading printer data</strong>
-                <span>Connecting to the factory floor…</span>
+                <span>Connecting...</span>
             </div>
             <div id="error-state" class="error-state" role="alert" hidden>
                 <strong>Printer data is unavailable.</strong>
