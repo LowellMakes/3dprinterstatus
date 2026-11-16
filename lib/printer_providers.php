@@ -284,6 +284,7 @@ function buildHomeAssistantTemplate(string $entityPrefix): string
         . "'model': device_attr('{$statusEntity}', 'model'), "
         . "'online': is_state('{$onlineEntity}', 'on'), "
         . "'status': states('{$statusEntity}'), "
+        . "'status_changed': states['{$statusEntity}'].last_changed.isoformat(), "
         . "'progress': states('{$progressEntity}'), "
         . "'remaining_hours': states('{$remainingEntity}'), "
         . "'remaining_unit': state_attr('{$remainingEntity}', 'unit_of_measurement'), "
@@ -318,6 +319,15 @@ function printerDisplayModel(array $printer, mixed $manufacturer = null, mixed $
     return $detectedModel !== '' ? $detectedModel : (string)($printer['model'] ?? '');
 }
 
+function homeAssistantPrintStateMetadata(array $data): array
+{
+    return [
+        'status' => strtolower((string)($data['status'] ?? 'offline')),
+        'status_changed' => (string)($data['status_changed'] ?? ''),
+        'start_time' => (string)($data['start_time'] ?? ''),
+    ];
+}
+
 function normalizeHomeAssistantPrinter(
     array $data,
     array $printer,
@@ -326,7 +336,9 @@ function normalizeHomeAssistantPrinter(
     $online = filter_var($data['online'] ?? false, FILTER_VALIDATE_BOOLEAN);
     $rawStatus = strtolower((string)($data['status'] ?? 'offline'));
     if (!$online || in_array($rawStatus, ['offline', 'unknown', 'unavailable'], true)) {
-        return offlinePrinter($printer);
+        $offline = offlinePrinter($printer);
+        $offline['_haPrintState'] = homeAssistantPrintStateMetadata($data);
+        return $offline;
     }
 
     [$status, $colorClass] = match ($rawStatus) {
@@ -373,7 +385,8 @@ function normalizeHomeAssistantPrinter(
     }
 
     $elapsed = '';
-    if (usefulHomeAssistantValue($data['start_time'] ?? null)) {
+    $isActivePrint = in_array($rawStatus, ['running', 'pause', 'paused', 'prepare', 'init', 'slicing'], true);
+    if ($isActivePrint && usefulHomeAssistantValue($data['start_time'] ?? null)) {
         try {
             $start = new DateTimeImmutable((string)$data['start_time']);
             $current = $now ?? new DateTimeImmutable('now');
@@ -399,6 +412,7 @@ function normalizeHomeAssistantPrinter(
         'left' => $remaining,
         'colorClass' => $colorClass,
         'active' => printerIsActive($printer),
+        '_haPrintState' => homeAssistantPrintStateMetadata($data),
     ];
 }
 
