@@ -833,6 +833,7 @@ test('Home Assistant template requests Bambu status and device model', function 
     assertContainsText("device_attr('sensor.bambu_a1_print_status', 'name_by_user')", $template);
     assertContainsText("device_attr('sensor.bambu_a1_print_status', 'manufacturer')", $template);
     assertContainsText("device_attr('sensor.bambu_a1_print_status', 'model')", $template);
+    assertContainsText("'status_changed': states['sensor.bambu_a1_print_status'].last_changed.isoformat()", $template);
     assertContainsText("sensor.bambu_a1_gcode_filename", $template);
     assertContainsText("sensor.bambu_a1_task_name", $template);
     assertContainsText("state_attr('sensor.bambu_a1_remaining_time', 'unit_of_measurement')", $template);
@@ -897,22 +898,27 @@ test('running Bambu state is normalized for the existing status page', function 
     assertSameValue('printing', $result['colorClass']);
 });
 
-test('idle and finished Bambu states display as ready', function (): void {
+test('finished Bambu elapsed freezes at status completion time', function (): void {
+    $start = '2026-09-17T13:45:00-04:00';
+    $finished = '2026-09-17T14:51:30-04:00';
+    $now = new DateTimeImmutable('2026-09-17T15:00:00-04:00');
+
     foreach (['idle', 'finish'] as $state) {
         $result = normalizeHomeAssistantPrinter([
             'name' => 'Bambu A1',
             'model' => 'A1',
             'online' => true,
             'status' => $state,
+            'status_changed' => $finished,
             'progress' => '100',
             'remaining_hours' => '0',
-            'start_time' => 'unknown',
+            'start_time' => $start,
             'gcode_filename' => 'last-print.gcode.3mf',
-        ], []);
+        ], [], $now);
 
         assertSameValue('Ready', $result['status']);
         assertSameValue('ready', $result['colorClass']);
-        assertSameValue('', $result['elapsed']);
+        assertSameValue('1hrs, 6mins', $result['elapsed']);
         assertSameValue('', $result['file']);
         assertSameValue('last-print.gcode.3mf', $result['lastFileCandidate']);
     }

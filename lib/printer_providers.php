@@ -284,6 +284,7 @@ function buildHomeAssistantTemplate(string $entityPrefix): string
         . "'model': device_attr('{$statusEntity}', 'model'), "
         . "'online': is_state('{$onlineEntity}', 'on'), "
         . "'status': states('{$statusEntity}'), "
+        . "'status_changed': states['{$statusEntity}'].last_changed.isoformat(), "
         . "'progress': states('{$progressEntity}'), "
         . "'remaining_hours': states('{$remainingEntity}'), "
         . "'remaining_unit': state_attr('{$remainingEntity}', 'unit_of_measurement'), "
@@ -376,7 +377,11 @@ function normalizeHomeAssistantPrinter(
     if (usefulHomeAssistantValue($data['start_time'] ?? null)) {
         try {
             $start = new DateTimeImmutable((string)$data['start_time']);
+            $isActivePrint = in_array($rawStatus, ['running', 'pause', 'paused', 'prepare', 'init', 'slicing'], true);
             $current = $now ?? new DateTimeImmutable('now');
+            if (!$isActivePrint && usefulHomeAssistantValue($data['status_changed'] ?? null)) {
+                $current = new DateTimeImmutable((string)$data['status_changed']);
+            }
             $elapsedSeconds = $current->getTimestamp() - $start->getTimestamp();
             if ($elapsedSeconds >= 0) {
                 $elapsed = formatDuration($elapsedSeconds);

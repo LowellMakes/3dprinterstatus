@@ -23,6 +23,8 @@ The following Bambu entities are used, where `<prefix>` is configured in the adm
 - `sensor.<prefix>_remaining_time`
 - `sensor.<prefix>_start_time`
 
+The elapsed timer runs from the Bambu start-time sensor while a print is active. Once the print-status entity leaves an active state, elapsed time freezes at that entity's last state-change time and remains visible until a new print updates the start time.
+
 The display name prefers the Home Assistant device's user-assigned name, then falls back to the Bambu printer-name sensor and the saved admin value. The hardware model is read from the print-status entity's Home Assistant device-registry metadata with `device_attr()`.
 
 ## Requirements
