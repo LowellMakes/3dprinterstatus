@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/lib/printer_providers.php';
 require_once __DIR__ . '/lib/job_history.php';
+require_once __DIR__ . '/lib/print_state.php';
 require_once __DIR__ . '/lib/app_config.php';
 
 $applicationConfig = applicationConfig();
 $printersFile = $applicationConfig['printers_file'];
 $cacheFile = $applicationConfig['cache_file'];
 $jobHistoryFile = printerJobHistoryPath($cacheFile);
+$printStateFile = printerPrintStatePath($cacheFile);
 
 function loadPrinters(string $path): array
 {
@@ -51,6 +53,7 @@ if ($cachedData === false) {
     $printers = loadPrinters($printersFile);
     $homeAssistantConfig = $applicationConfig['home_assistant'];
     $printerData = fetchPrinterData($printers, $homeAssistantConfig);
+    $printerData = applyPrinterPrintState($printStateFile, $printers, $printerData);
     $printerData = applyPrinterJobHistory($jobHistoryFile, $printers, $printerData);
     $cachedData = json_encode(
         $printerData,

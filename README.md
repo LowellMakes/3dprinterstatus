@@ -23,7 +23,7 @@ The following Bambu entities are used, where `<prefix>` is configured in the adm
 - `sensor.<prefix>_remaining_time`
 - `sensor.<prefix>_start_time`
 
-The elapsed timer runs from the Bambu start-time sensor while a print is active. Once the print-status entity leaves an active state, elapsed time freezes at that entity's last state-change time and remains visible until a new print updates the start time.
+The elapsed timer runs from the Bambu start-time sensor while a print is active. The first successful response reporting `finish` persists that response's Home Assistant status-change timestamp in a separate sidecar. The finished elapsed value therefore remains fixed through the later `idle`, offline, and reconnect states; a different start-time sensor value begins a new print and clears the prior finish.
 
 The display name prefers the Home Assistant device's user-assigned name, then falls back to the Bambu printer-name sensor and the saved admin value. The hardware model is read from the print-status entity's Home Assistant device-registry metadata with `device_attr()`.
 
@@ -88,12 +88,14 @@ Generated caches:
 
     /var/cache/3dprinterstatus/live/printer-data.json
     /var/cache/3dprinterstatus/live/printer-data.json.last-jobs.json
+    /var/cache/3dprinterstatus/live/printer-data.json.print-state.json
     /var/cache/3dprinterstatus/staging/printer-data.json
     /var/cache/3dprinterstatus/staging/printer-data.json.last-jobs.json
+    /var/cache/3dprinterstatus/staging/printer-data.json.print-state.json
 
 The PHP process needs read access to the selected config and read/write access to the selected printer inventory and cache directory. It does not need write access to the application checkout.
 
-The normal printer-data cache expires after 60 seconds. The adjacent `last-jobs` cache retains only the latest filename for each printer, keyed by its validated OctoPrint URL or Home Assistant entity prefix. History updates use an inter-process lock, and history-storage failures never prevent current printer data from being served. The first refresh seeds history from the filename retained by OctoPrint or Home Assistant even when the printer is already idle. While a job is active the dashboard shows its filename normally; idle, failed, and offline printers show the retained filename with muted styling. API keys are never included in history keys or cache content.
+The normal printer-data cache expires after 60 seconds. The adjacent `last-jobs` cache retains only the latest filename for each printer, keyed by its validated OctoPrint URL or Home Assistant entity prefix. The adjacent `print-state` cache independently retains the first observed Bambu finish timestamp and current start timestamp. Both sidecars use bounded locking and atomic replacement; failures never prevent current printer data from being served. API keys and internal provider metadata are never included in cache content.
 
 ## Migrating an existing server
 

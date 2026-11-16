@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../lib/printer_providers.php';
 require_once __DIR__ . '/../lib/job_history.php';
+require_once __DIR__ . '/../lib/print_state.php';
 require_once __DIR__ . '/../lib/app_config.php';
 require_once __DIR__ . '/../deploy/migrate-legacy-auth.php';
 
@@ -898,7 +899,7 @@ test('running Bambu state is normalized for the existing status page', function 
     assertSameValue('printing', $result['colorClass']);
 });
 
-test('finished Bambu elapsed freezes at status completion time', function (): void {
+test('completed Bambu states wait for lifecycle persistence to supply elapsed', function (): void {
     $start = '2026-09-17T13:45:00-04:00';
     $finished = '2026-09-17T14:51:30-04:00';
     $now = new DateTimeImmutable('2026-09-17T15:00:00-04:00');
@@ -918,7 +919,7 @@ test('finished Bambu elapsed freezes at status completion time', function (): vo
 
         assertSameValue('Ready', $result['status']);
         assertSameValue('ready', $result['colorClass']);
-        assertSameValue('1hrs, 6mins', $result['elapsed']);
+        assertSameValue('', $result['elapsed']);
         assertSameValue('', $result['file']);
         assertSameValue('last-print.gcode.3mf', $result['lastFileCandidate']);
     }
@@ -1201,6 +1202,156 @@ test('light theme status badges meet WCAG AA on normal and alternate rows', func
                 throw new RuntimeException(
                     sprintf('%s badge contrast is %.2f:1 on %s', $name, $ratio, $rowBackground)
                 );
+            }
+        }
+    }
+});
+
+test('Bambu finish time persists through idle, offline, and reconnect', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-print-state-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create print-state test file.');
+    }
+    unlink($path);
+    $printer = ['provider' => 'homeassistant', 'entityPrefix' => 'bambu_swift', 'printerName' => 'Swift'];
+    $start = '2026-11-15T10:00:00-05:00';
+    $finish = '2026-11-15T12:15:00-05:00';
+    $now = new DateTimeImmutable('2026-11-15T13:00:00-05:00');
+    try {
+        $finished = normalizeHomeAssistantPrinter([
+            'online' => true, 'status' => 'finish', 'status_changed' => $finish,
+            'start_time' => $start, 'progress' => '100', 'remaining_hours' => '0',
+        ], $printer, $now);
+        $rows = applyPrinterPrintState($path, [$printer], [$finished], $now);
+        assertSameValue('2hrs, 15mins', $rows[0]['elapsed']);
+        $idle = normalizeHomeAssistantPrinter([
+            'online' => true, 'status' => 'idle', 'status_changed' => '2026-11-15T12:16:00-05:00',
+            'start_time' => $start,
+        ], $printer, $now->modify('+2 hours'));
+        $rows = applyPrinterPrintState($path, [$printer], [$idle], $now->modify('+2 hours'));
+        assertSameValue('2hrs, 15mins', $rows[0]['elapsed']);
+        $rows = applyPrinterPrintState($path, [$printer], [offlinePrinter($printer)], $now->modify('+3 hours'));
+        assertSameValue('2hrs, 15mins', $rows[0]['elapsed']);
+        $reconnected = normalizeHomeAssistantPrinter([
+            'online' => true, 'status' => 'finish', 'status_changed' => '2026-11-15T14:00:00-05:00',
+            'start_time' => $start,
+        ], $printer, $now->modify('+3 hours'));
+        $rows = applyPrinterPrintState($path, [$printer], [$reconnected], $now->modify('+3 hours'));
+        assertSameValue('2hrs, 15mins', $rows[0]['elapsed']);
+    } finally {
+        foreach ([$path, $path . '.lock'] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
+            }
+        }
+    }
+});
+
+test('idle Bambu state does not mistake idle last_changed for print completion', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-print-state-idle-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create print-state idle test file.');
+    }
+    unlink($path);
+    $printer = ['provider' => 'homeassistant', 'entityPrefix' => 'bambu_swift'];
+    try {
+        $idle = normalizeHomeAssistantPrinter([
+            'online' => true, 'status' => 'idle', 'status_changed' => '2026-11-15T12:16:00-05:00',
+            'start_time' => '2026-11-15T10:00:00-05:00',
+        ], $printer, new DateTimeImmutable('2026-11-15T13:00:00-05:00'));
+        $rows = applyPrinterPrintState($path, [$printer], [$idle], new DateTimeImmutable('2026-11-15T13:00:00-05:00'));
+        assertSameValue('', $rows[0]['elapsed']);
+    } finally {
+        foreach ([$path, $path . '.lock'] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
+            }
+        }
+    }
+});
+
+test('Bambu new start time clears the previous finish and resumes active elapsed', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-print-state-reset-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create print-state reset file.');
+    }
+    unlink($path);
+    $printer = ['provider' => 'homeassistant', 'entityPrefix' => 'bambu_swift'];
+    $now = new DateTimeImmutable('2026-11-15T15:00:00-05:00');
+    try {
+        $finished = normalizeHomeAssistantPrinter([
+            'online' => true, 'status' => 'finish', 'status_changed' => '2026-11-15T12:00:00-05:00',
+            'start_time' => '2026-11-15T10:00:00-05:00',
+        ], $printer, $now);
+        applyPrinterPrintState($path, [$printer], [$finished], $now);
+        $running = normalizeHomeAssistantPrinter([
+            'online' => true, 'status' => 'running', 'status_changed' => '2026-11-15T14:30:00-05:00',
+            'start_time' => '2026-11-15T14:30:00-05:00',
+        ], $printer, $now);
+        $rows = applyPrinterPrintState($path, [$printer], [$running], $now);
+        assertSameValue('30mins', $rows[0]['elapsed']);
+        assertSameValue('Printing', $rows[0]['status']);
+    } finally {
+        foreach ([$path, $path . '.lock'] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
+            }
+        }
+    }
+});
+
+test('print-state internal metadata is stripped before API output', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-print-state-strip-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create print-state strip file.');
+    }
+    unlink($path);
+    $printer = ['provider' => 'homeassistant', 'entityPrefix' => 'bambu_swift'];
+    try {
+        $row = normalizeHomeAssistantPrinter([
+            'online' => true, 'status' => 'running', 'status_changed' => '2026-11-15T14:30:00-05:00',
+            'start_time' => '2026-11-15T14:00:00-05:00',
+        ], $printer, new DateTimeImmutable('2026-11-15T15:00:00-05:00'));
+        $rows = applyPrinterPrintState($path, [$printer], [$row], new DateTimeImmutable('2026-11-15T15:00:00-05:00'));
+        assertSameValue(false, array_key_exists('_haPrintState', $rows[0]));
+    } finally {
+        foreach ([$path, $path . '.lock'] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
+            }
+        }
+    }
+});
+
+test('print-state lock fallback is bounded and strips internal metadata', function (): void {
+    $path = tempnam(sys_get_temp_dir(), '3dps-print-state-busy-');
+    if ($path === false) {
+        throw new RuntimeException('Could not create busy print-state file.');
+    }
+    unlink($path);
+    $printer = ['provider' => 'homeassistant', 'entityPrefix' => 'bambu_swift'];
+    $lock = fopen($path . '.lock', 'c');
+    if ($lock === false || !flock($lock, LOCK_EX)) {
+        throw new RuntimeException('Could not hold print-state test lock.');
+    }
+    try {
+        $row = normalizeHomeAssistantPrinter([
+            'online' => true, 'status' => 'running', 'status_changed' => '2026-11-15T14:30:00-05:00',
+            'start_time' => '2026-11-15T14:00:00-05:00',
+        ], $printer, new DateTimeImmutable('2026-11-15T15:00:00-05:00'));
+        $started = microtime(true);
+        $rows = applyPrinterPrintState($path, [$printer], [$row], new DateTimeImmutable('2026-11-15T15:00:00-05:00'), static function (string $message): void {});
+        if (microtime(true) - $started > 0.75) {
+            throw new RuntimeException('Busy print-state lock blocked for too long.');
+        }
+        assertSameValue('1hrs, 0mins', $rows[0]['elapsed']);
+        assertSameValue(false, array_key_exists('_haPrintState', $rows[0]));
+    } finally {
+        flock($lock, LOCK_UN);
+        fclose($lock);
+        foreach ([$path, $path . '.lock'] as $candidate) {
+            if (is_file($candidate)) {
+                unlink($candidate);
             }
         }
     }
